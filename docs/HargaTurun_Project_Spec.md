@@ -968,6 +968,10 @@ Pricing arithmetic is handled by the deterministic Python engine (§9.2), not th
 7. Split: 90% train / 10% eval
 8. Tokenize and pack for QLoRA training
 
+> **Fine-tuning procedure:** See `HargaTurun_FineTuning_Plan.md` for the complete
+> runbook: QLoRA configuration, hyperparameters, training script, evaluation metrics,
+> GGUF export, and iteration strategy.
+
 ---
 
 ## 11. Product & Interaction Design
