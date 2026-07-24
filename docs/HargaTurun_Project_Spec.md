@@ -63,8 +63,8 @@ Enterprise solutions over-engineer the supply side. Consumer apps ignore the sup
 entirely (vendors set their own prices). **Nobody combines AI-optimized pricing with consumer
 discovery at UMKM scale.**
 
-A fine-tuned 4–9B language model handles the parts that need language: parsing free-text
-input, generating explanations, and writing promotional copy. A deterministic Python pricing
+A fine-tuned **Qwen3.5-4B** language model handles the parts that need language: parsing
+free-text input, generating explanations, and writing promotional copy. A deterministic Python pricing
 engine (the same oracle formula used to generate training data) handles the arithmetic:
 discount calculation, revenue/loss projection, and deal JSON assembly. The model never does
 math — it extracts meaning and produces words; Python produces numbers. The consumer side is
@@ -172,7 +172,7 @@ then a lightweight read-only page that renders the assembled output.
 ║  ┌────────────────────────────────────────────────────────┐  ║
 ║  │  AI ENGINE — Hybrid (Model + Python Pricing Engine)    │  ║
 ║  │                                                        │  ║
-║  │  Step 1: Fine-tuned 4–9B model (single inference)      │  ║
+║  │  Step 1: Fine-tuned Qwen3.5-4B model (single inference) │  ║
 ║  │    → parses input (structured or free-text)            │  ║
 ║  │    → generates explanation (why this price)            │  ║
 ║  │    → generates promotional copy                        │  ║
@@ -309,7 +309,7 @@ then a lightweight read-only page that renders the assembled output.
 |---|---|---|
 | NFR-1 | **Inference latency** | < 10 seconds end-to-end (input → all outputs displayed) |
 | NFR-2 | **Hardware ceiling** | Must run on: 1× GPU 8GB VRAM + 20GB system RAM. No multi-GPU. |
-| NFR-3 | **Model size** | Single 4–9B parameter model (4-bit quantized for inference). Fits ≤6GB VRAM. |
+| NFR-3 | **Model size** | Qwen3.5-4B (4B parameters, 4-bit quantized for inference). ~2.5 GB VRAM at inference, ~4–5 GB for QLoRA training. Fits 8GB GPU with headroom. |
 | NFR-4 | **Offline capability** | No internet required at inference time. Model weights bundled or pre-downloaded. |
 | NFR-5 | **Reproducibility** | Same input → same output (static parameters, greedy decoding). |
 | NFR-6 | **Modular architecture** | Clear separation: model layer / API layer / frontend layer. |
@@ -425,7 +425,7 @@ then a lightweight read-only page that renders the assembled output.
 - ✅ Pricing recommendation + impact projection + explanation (FR-3, FR-4, FR-5)
 - ✅ Promotional copy generation (FR-6)
 - ✅ Static model parameters, deterministic output (FR-20)
-- ✅ Fine-tuned 4–9B model (competition requirement)
+- ✅ Fine-tuned Qwen3.5-4B model (4B params, within competition 4–9B range)
 
 **Business Side:**
 - ✅ Publish/unpublish deal (FR-9, FR-12)
@@ -480,16 +480,42 @@ If the team advances to the 10-hour hackathon, priority upgrades:
 
 | Attribute | Specification |
 |---|---|
-| **Architecture** | Transformer-based causal language model (decoder-only) |
-| **Parameter range** | 4–9 billion parameters |
-| **Quantization (inference)** | 4-bit (GPTQ/AWQ/bitsandbytes) → ≤6GB VRAM |
-| **Quantization (training)** | QLoRA (4-bit base + LoRA adapters) → ≤8GB VRAM |
-| **Context window** | Minimum 4K tokens (input + output combined) |
-| **Fine-tuning method** | QLoRA (LoRA rank 16–64, target: q/k/v/o/gate/up/down projections) |
-| **Fine-tuning data** | Custom dataset: pricing scenarios → triple output (see §10) |
+| **Base model** | **Qwen3.5-4B** (`Qwen/Qwen3.5-4B`) |
+| **Architecture** | Transformer-based causal language model (decoder-only), multimodal (vision + text) |
+| **Parameters** | 4 billion (within competition 4–9B range) |
+| **Languages** | 201 languages, including Bahasa Indonesia |
+| **Quantization (inference)** | 4-bit (GGUF Q4_K_M via llama.cpp) → ~2.5 GB VRAM |
+| **Quantization (training)** | QLoRA via Unsloth → ~4–5 GB VRAM |
+| **Context window** | 262,144 tokens (256K) — far exceeds the ~1K needed per interaction |
+| **Fine-tuning method** | QLoRA via Unsloth (LoRA rank 16–64, target: q/k/v/o/gate/up/down projections) |
+| **Fine-tuning data** | Custom dataset: pricing scenarios → dual output: NLU + NLG (see §10) |
 | **Inference mode** | Deterministic (temperature=0, greedy decoding) for reproducibility |
-| **Serving** | llama.cpp / vLLM / TGI via Docker container |
-| **Max output tokens** | 350 (sufficient for recommendation + promo + JSON) |
+| **Serving** | llama.cpp / vLLM via Docker container |
+| **Max output tokens** | 350 (sufficient for parsed_input + explanation + promo) |
+| **Vision capability** | Built-in (accepts image input) — not used in MVP, available for hackathon OCR upgrade |
+
+> **Why Qwen3.5-4B?**
+> - **Indonesian fluency:** 201-language pre-training with strong Indonesian coverage.
+>   The model's entire job is parsing colloquial Indonesian and generating natural
+>   Bahasa Indonesia text — this is the #1 selection criterion.
+> - **Right-sized:** 4B parameters fits the competition range (4–9B) and the 8GB VRAM
+>   budget with headroom. The task is narrow NLU + NLG; 7B+ adds latency without
+>   meaningful quality gain after domain fine-tuning.
+> - **Mature tooling:** Full Unsloth support (fine-tuning), standard llama.cpp / vLLM
+>   support (serving). No custom forks needed.
+> - **Free vision upgrade path:** Qwen3.5-4B is multimodal. The hackathon OCR upgrade
+>   (photograph product label → extract fields) can use the model's built-in vision
+>   instead of a separate OCR tool. No architecture change needed.
+> - **Fallback:** If Indonesian quality disappoints after fine-tuning, swap to
+>   **Qwen3.5-9B** (same pipeline, one-line model ID change, ~8–10 GB QLoRA VRAM).
+>
+> **Candidates evaluated and rejected:**
+> | Model | Why rejected |
+> |---|---|
+> | Nanbeige4.2-3B | English + Chinese only, no Indonesian. Custom Looped Transformer architecture breaks standard QLoRA tooling. 3B below competition range. |
+> | Ternary Bonsai 27B | 27B params = 3× competition ceiling. QLoRA training needs ~14 GB VRAM. Requires PrismML's custom forks for serving. Overkill for NLU + NLG. |
+> | Qwen3.5-9B | Viable fallback, but ~8–10 GB QLoRA VRAM is tight on 8GB GPU. Start with 4B, upgrade only if needed. |
+> | Qwen2.5-7B-Instruct | Mature and reliable, but Qwen3.5-4B is newer with better per-parameter performance and built-in vision. |
 
 ### 9.2 Hybrid Architecture: Fine-Tuned Model + Deterministic Pricing Engine
 
@@ -497,7 +523,7 @@ The system splits responsibilities by what each component does best:
 
 | Component | Responsibility | Why |
 |---|---|---|
-| **Fine-tuned 4–9B LLM** | Parse input (structured + free-text), generate explanation, generate promo copy | Language understanding and generation — what LLMs excel at |
+| **Fine-tuned Qwen3.5-4B** | Parse input (structured + free-text), generate explanation, generate promo copy | Language understanding and generation — what LLMs excel at |
 | **Python pricing engine** | Compute discount %, recommended price, timing, sell-through, revenue/loss projections, assemble deal JSON, enforce bounds | Deterministic arithmetic — what code excels at. Uses the same oracle formula that generates training data (§10) |
 
 The model outputs parsed fields + natural language text. Python computes all numbers and
@@ -519,10 +545,11 @@ Over-engineered for MVP. The oracle formula is already a well-defined function. 
 in a separate ML model adds a second model to serve, a second container, and integration
 complexity — for zero accuracy gain.
 
-**Model size constraints still apply:**
-- Larger model (13B+) → doesn't fit 8GB VRAM.
+**Model size constraints:**
+- Larger model (13B+) → doesn't fit 8GB VRAM for QLoRA training.
 - Smaller model (<3B) → insufficient capacity for reliable Indonesian NLU + NLG.
-- **4–9B** → sweet spot for multilingual instruction-following at this VRAM budget.
+- **Qwen3.5-4B** → 4B params, ~4–5 GB QLoRA VRAM, 201-language pre-training.
+  Sweet spot for this task. Fallback to Qwen3.5-9B if Indonesian quality is insufficient.
 
 ### 9.3 Model Input/Output Contract
 
@@ -1083,10 +1110,10 @@ Pricing arithmetic is handled by the deterministic Python engine (§9.2), not th
 | Criterion | How HargaTurun scores |
 |---|---|
 | **Originality & Social Impact** | First AI-optimized surplus food platform for Indonesian UMKM. Double-sided impact: vendor income + consumer access + waste reduction. No direct competitor. |
-| **Technology & Architecture** | Proportional model choice (4–9B, not overkill). Clean 3-layer separation (model/API/frontend). Fine-tuned, not just API-called. |
+| **Technology & Architecture** | Proportional model choice (Qwen3.5-4B, not overkill). Clean 3-layer separation (model/API/frontend). Fine-tuned, not just API-called. Hybrid architecture: model for language, deterministic Python for pricing. |
 | **MVP Readiness** | Right-sized scope: core AI + two views + claim flow. Extensible (OCR, voice, batch as hackathon upgrades). Clear upgrade path without rearchitecture. |
 | **Video Promosi** | Strong storytelling: open with vendor throwing away bread → "what if AI could prevent this?" → show platform → consumer gets cheap food → win-win. Emotional + logical. |
-| **Proposal Quality** | Clear methodology: oracle formula → synthetic data → QLoRA → eval. Decision-making documented (why LLM over XGBoost, why 4–9B, why single model). |
+| **Proposal Quality** | Clear methodology: oracle formula → synthetic data → QLoRA → eval. Decision-making documented (why hybrid model+Python, why Qwen3.5-4B, why not larger/smaller). |
 | **Theme Relevance** | Directly Smart Commerce: AI optimizes commercial transactions, connects supply and demand, improves UMKM operations. Not forced. |
 | **Business Value (bonus)** | Clear monetization path (freemium + commission). Precedent (Too Good To Go). Scalable network effects. |
 | **Governance (bonus)** | Explainable AI, data minimization, human override, SDG alignment, no dark patterns. |
@@ -1115,7 +1142,7 @@ Pricing arithmetic is handled by the deterministic Python engine (§9.2), not th
 |---|---|---|
 | A1 | UMKM owners know their purchase/production cost per item | Standard for any business operator |
 | A2 | Expiry dates are knowable (printed on packaging, or estimated for fresh food) | Most packaged goods have printed dates; fresh food estimated by vendor experience |
-| A3 | A fine-tuned 4–9B model can reliably parse colloquial Indonesian input and generate explanation + promo copy, while a deterministic Python engine handles all pricing arithmetic | QLoRA fine-tuning on NLU + NLG tasks is well within 4–9B capability; pricing math is a known formula that doesn't need a neural network |
+| A3 | A fine-tuned Qwen3.5-4B can reliably parse colloquial Indonesian input and generate explanation + promo copy, while a deterministic Python engine handles all pricing arithmetic | Qwen3.5-4B has 201-language pre-training including Indonesian; QLoRA on NLU + NLG tasks is well within 4B capability; pricing math is a known formula that doesn't need a neural network |
 | A4 | Indonesian FMCG/food price elasticity can be approximated from published studies | BPS data + academic FMCG elasticity papers exist |
 | A5 | 5,000–8,000 training examples suffice for QLoRA | Domain-specific instruction tuning typically needs far fewer than general tuning |
 | A6 | Consumers will actually visit a deals page and claim deals | Precedent: Too Good To Go adoption; Indonesian consumers are highly price-sensitive and deal-seeking |
@@ -1159,7 +1186,7 @@ Pricing arithmetic is handled by the deterministic Python engine (§9.2), not th
 
 Once this specification is approved, technical execution begins:
 
-1. **Select specific 4–9B base model** — evaluate candidates on a small pricing prompt test
+1. ~~**Select specific 4–9B base model**~~ — **Done: Qwen3.5-4B** (evaluated Nanbeige4.2-3B, Ternary Bonsai 27B, Qwen2.5-7B; see §9.1)
 2. **Build the oracle formula** — pricing logic ground-truth generator (Python)
 3. **Generate synthetic dataset** — target: 5,000+ examples with triple output
 4. **Set up QLoRA training pipeline** — Unsloth or HuggingFace TRL
