@@ -398,6 +398,7 @@ publish a price below the margin floor: rejected by the server
 
 | File | What it is |
 |---|---|
+| [`UIUX_HANDOVER.md`](UIUX_HANDOVER.md) | **Per-screen requirements for the UI/UX team** — mobile app (phone + tablet), 24 screens, states, copy deck |
 | [`docs/HargaTurun_Project_Spec.md`](docs/HargaTurun_Project_Spec.md) | Problem, personas, the full oracle formula, model choice, business model, risks |
 | [`docs/HargaTurun_Penyisihan_SRS.md`](docs/HargaTurun_Penyisihan_SRS.md) | **Authoritative** preliminary scope, API contract, acceptance criteria |
 | [`docs/HargaTurun_Final_SRS.md`](docs/HargaTurun_Final_SRS.md) | Final-round marketplace loop, data model, phased cut line |
