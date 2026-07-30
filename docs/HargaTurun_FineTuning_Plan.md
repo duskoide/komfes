@@ -1,84 +1,87 @@
 # HargaTurun — Fine-Tuning Plan & Runbook
 
-> **Document type:** Engineering runbook + Proposal methodology source
-> **Competition:** COMPFEST 18 AIC — "model wajib di-fine tune"
-> **Version:** 1.0
+> **Document type:** engineering runbook + proposal methodology source  
+> **Competition:** COMPFEST 18 AIC — model must be genuinely fine-tuned  
+> **Version:** 1.1  
+> **Status:** design corrected; scripts and measured results still required
 
 ---
 
-## 1. Objective & Scope
+## 1. Decisions and constraints
 
-### 1.1 What Fine-Tuning Achieves
+### 1.1 Model responsibility
 
-Given the **hybrid architecture** (Project Spec §9.2), the model's job is narrow:
-- **NLU:** Parse colloquial Indonesian input → structured `parsed_input` JSON
-- **NLG:** Generate `explanation` (business-facing reasoning) + `promo_copy` (consumer-facing marketing text)
+HargaTurun uses a hybrid architecture:
 
-The model does **NOT** compute pricing, revenue projections, or discount percentages. That is the Python pricing engine's job (oracle formula, Project Spec §9.5).
+- **Qwen3.5-4B:** parse colloquial Indonesian and write Indonesian explanation/promo text.
+- **Deterministic Python pricing engine:** validate confirmed inputs and compute every discount, price, timing, projection, warning, and `no_action` result.
 
-### 1.2 Why Fine-Tune (vs. Zero-Shot Prompting)
+The model must never invent or calculate discount percentages, recommended prices, revenue, loss, sell-through, timing, or safety outcomes.
 
-| Benefit | Impact |
-|---|---|
-| **Output consistency** | Near-100% valid JSON schema compliance vs. ~85-90% with prompting |
-| **Colloquial robustness** | Handles "exp", "rb", "biji", "besok", slang variants reliably |
-| **Shorter prompts** | No need for 5-shot examples in every request → lower latency |
-| **Competition compliance** | Satisfies "model wajib di-fine tune" rule |
+### 1.2 Two explicit model tasks
 
-### 1.3 Fine-Tuning Intensity (Scaled to Baseline Gap)
+Do not ask the model to parse input and justify an oracle result that it has not seen. Train two task modes instead:
 
-Run `scripts/baseline_eval.py` first. Adjust fine-tuning effort based on results:
+1. **`parse`** — free text → `parsed_input`, `missing_fields`, and `needs_confirmation`.
+2. **`write`** — confirmed normalized input plus the pricing-engine result → qualitative `explanation` and `promo_copy`.
 
-| Baseline Accuracy | Strategy | Data Size | LoRA Rank | Epochs |
-|---|---|---|---|---|
-| ≥85% | Light (consistency lock) | 2,000–3,000 | 16 | 1–2 |
-| 60–85% | Standard | 4,000–5,000 | 32 | 2 |
-| <60% | Full | 5,000–8,000 | 64 | 2–3 |
+One browser submission remains one synchronous product interaction. Internally:
 
----
+```text
+Free text:
+  model(parse) -> validate/confirm -> pricing engine -> model(write) -> response
 
-## 2. Base Model & Tooling
-
-### 2.1 Model Selection
-
-**Base model:** `unsloth/Qwen3.5-4B` (Unsloth's optimized loader for fast QLoRA)
-
-| Attribute | Value |
-|---|---|
-| Parameters | 4B |
-| Languages | 201 (incl. Bahasa Indonesia) |
-| Context window | 262K tokens (we use ~1K max) |
-| Architecture | Transformer decoder-only, multimodal (vision unused in MVP) |
-| Quantization (training) | 4-bit NF4 (QLoRA) |
-| Quantization (inference) | Q4_K_M GGUF for llama.cpp |
-
-**Why Qwen3.5-4B?** See Project Spec §9.1 — Indonesian fluency, right-sized, mature tooling, built-in vision for future OCR.
-
-### 2.2 Tooling
-
-| Tool | Purpose |
-|---|---|
-| **Unsloth** | Fast QLoRA training (1.5× faster, 50% less VRAM than FA2) |
-| **TRL (SFTTrainer)** | Supervised fine-tuning on chat-format data |
-| **bitsandbytes** | 4-bit quantization for QLoRA |
-| **llama.cpp** | GGUF export + inference serving |
-
-**Installation:**
-```bash
-pip install "unsloth[cu121-torch240] @ git+https://github.com/unslothai/unsloth.git"
-pip install trl bitsandbytes accelerate datasets
+Structured input:
+  validate -> pricing engine -> model(write) -> response
 ```
 
+If required values are missing, the API returns confirmation immediately and does not call the pricing engine or writer.
+
+### 1.3 Hardware and training-method decision
+
+The target laptop has an RTX 4060 Laptop GPU with 8 GB VRAM. It is suitable for Qwen3.5-4B GGUF inference, but it is **not the declared training target**.
+
+Current Unsloth guidance states:
+
+- Qwen3.5-4B BF16 LoRA uses about 10 GB VRAM;
+- QLoRA/4-bit training is not recommended for Qwen3.5 because quantization differences are higher than normal;
+- Transformers v5 is required.
+
+Therefore:
+
+- **Training method:** BF16 LoRA, not QLoRA.
+- **Training environment:** GPU with at least 12 GB usable VRAM; 16 GB is preferred. Use a suitable cloud/Colab GPU if needed.
+- **Laptop role:** base-model baseline evaluation, final GGUF evaluation, local serving, and demo.
+- **Fallback:** do not silently switch to QLoRA. If BF16 LoRA cannot be run, record the blocker and secure a larger training environment.
+
+### 1.4 Existing local artifacts
+
+The installed base Qwen3.5-4B `Q4_K_M` and `Q8_0` GGUF files are useful for baseline inference and quantization comparison. They are not trainable Unsloth checkpoints and are not evidence of fine-tuning.
+
+Before evaluation, copy or symlink them to stable paths and record their identities:
+
+```bash
+mkdir -p models/baseline
+cp /actual/path/Qwen3.5-4B-Q4_K_M.gguf models/baseline/qwen3.5-4b-q4_k_m.gguf
+cp /actual/path/Qwen3.5-4B-Q8_0.gguf   models/baseline/qwen3.5-4b-q8_0.gguf
+sha256sum models/baseline/*.gguf
+```
+
+Do not overwrite these files with fine-tuned exports. Final artifacts use `models/finetuned/`.
+
 ---
 
-## 3. What the Model Learns (and Doesn't)
+## 2. Model contracts
 
-### 3.1 Training Targets
+### 2.1 Parse task
 
-The model learns to produce **three outputs** from one input:
+**Input:** one Indonesian free-text item description.
+
+**Output:** JSON only:
 
 ```json
 {
+  "task": "parse",
   "parsed_input": {
     "item_name": "roti tawar",
     "category": "Bakery",
@@ -86,665 +89,446 @@ The model learns to produce **three outputs** from one input:
     "cost": 10000,
     "stock": 10,
     "days_remaining": 2,
+    "daily_sales": null,
+    "total_shelf_life": null,
     "shop_name": "toko sari bakery"
   },
-  "explanation": "Roti tawar termasuk cepat basi. Dengan sisa 2 hari dan stok 10 pcs, perlu diskon agar tidak terbuang. Kategori bakery sangat sensitif harga, pembeli cenderung membeli jika ada potongan.",
-  "promo_copy": "🍞 Roti tawar fresh dari Toko Sari Bakery! Stok terbatas, buruan sebelum habis. Diskon spesial untuk Anda!"
+  "missing_fields": ["daily_sales", "total_shelf_life"],
+  "needs_confirmation": true
 }
 ```
 
-### 3.2 What the Model Does NOT Learn
+Allowed categories are `Bakery`, `Prepared Food`, `Dairy`, `Beverage`, `Produce`, `Snack`, `Canned`, and `Other`.
 
-- ❌ Discount percentage calculation (Python oracle)
-- ❌ Recommended price computation (Python oracle)
-- ❌ Revenue/loss projections (Python oracle)
-- ❌ Timing recommendation logic (Python oracle)
-- ❌ Sell-through estimation (Python oracle)
+Rules:
 
-These are **injected by Python** at inference time. The model's `explanation` and `promo_copy` are **qualitative** (reference days, stock, category perishability) but do not contain specific figures like "30% OFF" or "Rp10.500" — those are added by the API layer after oracle computation.
+- Preserve explicit values exactly after deterministic unit normalization (`15rb` → `15000`, `besok` → `1`).
+- Use `null` when a value is missing or ambiguous; never infer economic facts.
+- `daily_sales` is required and must be supplied or confirmed by the owner.
+- `total_shelf_life` is required; a category default may be proposed by the backend but must be disclosed and confirmed.
+- `needs_confirmation` is true when any required field is missing or ambiguous.
+- The model does not emit an explanation, promo text, recommendation, or clarifying prose in this task.
 
-### 3.3 Training Data Schema
+Required parse fields are:
 
-Each training example is a chat message:
+```text
+item_name, category, original_price, cost, stock, days_remaining,
+daily_sales, total_shelf_life
+```
+
+`shop_name` is optional.
+
+### 2.2 Write task
+
+**Input:** confirmed normalized input and the complete deterministic engine result. For example:
 
 ```json
 {
-  "messages": [
-    {
-      "role": "system",
-      "content": "Anda adalah asisten HargaTurun untuk UMKM makanan Indonesia.\n\nTugas: baca input pemilik usaha (form terstruktur atau teks bebas sehari-hari), hasilkan JSON dengan tiga bagian:\n\n1. \"parsed_input\": objek dengan field:\n   - item_name (string)\n   - category (salah satu: Bakery, Prepared Food, Dairy, Beverage, Produce, Snack, Canned, Other)\n   - original_price (integer, Rupiah. \"15rb\"=15000, \"1.5jt\"=1500000)\n   - cost (integer, Rupiah, modal per unit)\n   - stock (integer, jumlah unit)\n   - days_remaining (number, hari menuju kadaluarsa. \"besok\"=1, \"hari ini\"=0)\n   - shop_name (string)\n   Jika field tidak ada/tidak jelas, isi null.\n\n2. \"explanation\": 2-4 kalimat Bahasa Indonesia sederhana mengapa item perlu/tidak perlu diskon.\n\n3. \"promo_copy\": 1-2 kalimat promosi catchy dan mendesak untuk konsumen.\n\nHanya keluarkan JSON valid, tanpa teks lain, tanpa markdown code fence."
-    },
-    {
-      "role": "user",
-      "content": "roti tawar 10 biji exp 2 hari harga 15rb modal 10rb toko sari bakery"
-    },
-    {
-      "role": "assistant",
-      "content": "{\"parsed_input\": {\"item_name\": \"roti tawar\", \"category\": \"Bakery\", \"original_price\": 15000, \"cost\": 10000, \"stock\": 10, \"days_remaining\": 2, \"shop_name\": \"toko sari bakery\"}, \"explanation\": \"Roti tawar termasuk cepat basi. Dengan sisa 2 hari dan stok 10 pcs, perlu diskon agar tidak terbuang. Kategori bakery sangat sensitif harga, pembeli cenderung membeli jika ada potongan.\", \"promo_copy\": \"🍞 Roti tawar fresh dari Toko Sari Bakery! Stok terbatas, buruan sebelum habis. Diskon spesial untuk Anda!\"}"
-    }
-  ]
+  "task": "write",
+  "normalized_input": {
+    "item_name": "Roti Tawar",
+    "category": "Bakery",
+    "original_price": 15000,
+    "cost": 10000,
+    "stock": 10,
+    "days_remaining": 2,
+    "daily_sales": 5,
+    "total_shelf_life": 4,
+    "shop_name": "Toko Sari Bakery"
+  },
+  "engine_result": {
+    "status": "recommendation",
+    "discount_percent": 30,
+    "recommended_price": 10500,
+    "timing": "Mulai diskon hari ini",
+    "expected_sell_through": "8 dari 10 pcs",
+    "expected_revenue": 84000,
+    "expected_loss_no_action": 50000,
+    "confidence": "Cukup yakin"
+  }
 }
 ```
 
----
+**Output:** JSON only:
 
-## 4. Training Data Specification
+```json
+{
+  "task": "write",
+  "explanation": "Roti tawar mendekati batas jual sementara stoknya belum tentu habis pada laju penjualan saat ini. Rekomendasi harga dari sistem membantu mempercepat penjualan tanpa melewati batas margin yang ditetapkan.",
+  "promo_copy": "🍞 Roti Tawar hemat 30% hari ini, hanya Rp10.500! Stok terbatas di Toko Sari Bakery."
+}
+```
 
-### 4.1 Data Generation Pipeline
+Rules:
 
-**Script:** `scripts/generate_training_data.py` (to be written)
+- Treat `engine_result` as authoritative; do not recalculate or alter it.
+- Copy numerical claims only from `engine_result` or `normalized_input`.
+- Generate status-appropriate language for `recommendation`, `no_action`, or `warning`.
+- The explanation is 2–4 concise Indonesian sentences.
+- Promo copy is 1–2 Indonesian sentences and must not claim a promotion for `no_action` or `warning`.
 
-**Steps:**
+### 2.3 Why these tasks are separate
 
-1. **Generate random scenarios** (5,000–8,000 based on baseline gap)
-   ```python
-   categories = ["Bakery", "Prepared Food", "Dairy", "Beverage", "Produce", "Snack", "Canned", "Other"]
-   
-   for i in range(N):
-       category = random.choice(categories)
-       item_name = generate_item_name(category)  # e.g., "roti tawar", "susu uht", "sarden kaleng"
-       shop_name = generate_shop_name()  # e.g., "Toko Sari Bakery", "Warung Bu Rina"
-       
-       original_price = random.randint(2000, 150000)  # Rp2.000 – Rp150.000
-       cost = int(original_price * random.uniform(0.5, 0.9))  # 10-50% margin
-       stock = random.randint(1, 100)
-       
-       shelf_life = CATEGORY_SHELF_LIFE[category]  # from Project Spec §9.5
-       days_remaining = random.uniform(0, shelf_life * 1.5)  # some expired, some far
-       
-       daily_sales = random.uniform(1, 50)  # vendor estimate
-   ```
-
-2. **Run oracle** → get numbers (for context, to generate realistic explanations)
-   ```python
-   from pricing import compute_recommendation
-   
-   parsed_input = {
-       "item_name": item_name,
-       "category": category,
-       "original_price": original_price,
-       "cost": cost,
-       "stock": stock,
-       "days_remaining": days_remaining,
-       "shop_name": shop_name
-   }
-   
-   recommendation = compute_recommendation(parsed_input)
-   # recommendation has: discount_percent, recommended_price, timing, etc.
-   ```
-
-3. **Generate model targets** (qualitative, no computed figures)
-   
-   **Explanation templates** (category + urgency-specific):
-   ```python
-   def generate_explanation(parsed_input, recommendation):
-       category = parsed_input["category"]
-       days = parsed_input["days_remaining"]
-       stock = parsed_input["stock"]
-       
-       # Perishability statement
-       if category == "Bakery":
-           perish = "termasuk cepat basi"
-       elif category == "Canned":
-           perish = "tahan lama"
-       elif category == "Dairy":
-           perish = "perlu disimpan dingin dan cepat kadaluarsa"
-       # ... etc
-       
-       # Urgency statement
-       if days < 1:
-           urgency = "Waktu sangat terbatas, harus habis hari ini"
-       elif days < 3:
-           urgency = f"Dengan sisa {int(days)} hari"
-       else:
-           urgency = f"Dengan sisa {int(days)} hari"
-       
-       # Stock statement
-       if stock > 20:
-           stock_stmt = f"stok masih banyak ({stock} pcs)"
-       elif stock < 5:
-           stock_stmt = f"stok tinggal sedikit ({stock} pcs)"
-       else:
-           stock_stmt = f"stok {stock} pcs"
-       
-       # Recommendation direction
-       if recommendation["no_action"]:
-           rec = "Belum perlu diskon, item ini kemungkinan terjual normal"
-       elif recommendation["discount_percent"] > 40:
-           rec = "perlu diskon agresif agar tidak terbuang"
-       else:
-           rec = "perlu diskon agar terjual sebelum kadaluarsa"
-       
-       # Category elasticity
-       if category in ["Bakery", "Prepared Food"]:
-           elast = "Kategori ini sangat sensitif harga, pembeli cenderung membeli jika ada potongan"
-       elif category == "Canned":
-           elast = "Kategori ini kurang sensitif harga, diskon kecil sudah cukup membantu"
-       else:
-           elast = ""
-       
-       explanation = f"{item_name.capitalize()} {perish}. {urgency} dan {stock_stmt}, {rec}. {elast}"
-       return explanation.strip()
-   ```
-   
-   **Promo templates** (urgency-specific, no figures):
-   ```python
-   def generate_promo(parsed_input, recommendation):
-       item = parsed_input["item_name"]
-       shop = parsed_input["shop_name"]
-       days = parsed_input["days_remaining"]
-       stock = parsed_input["stock"]
-       
-       if days < 1:
-           urgency = "HARI INI SAJA!"
-       elif days < 3:
-           urgency = f"Sisa {int(days)} hari!"
-       else:
-           urgency = f"Promo spesial!"
-       
-       if stock < 5:
-           stock_stmt = "Stok sangat terbatas"
-       elif stock < 20:
-           stock_stmt = "Stok terbatas"
-       else:
-           stock_stmt = "Selama persediaan masih ada"
-       
-       emojis = {"Bakery": "🍞", "Beverage": "☕", "Dairy": "🥛", "Prepared Food": "🍱", "Snack": "🍪"}
-       emoji = emojis.get(parsed_input["category"], "🏷️")
-       
-       promo = f"{emoji} {item.capitalize()} dari {shop.capitalize()}! {urgency} {stock_stmt}, buruan sebelum habis. Diskon spesial untuk Anda!"
-       return promo
-   ```
-
-4. **Generate colloquial free-text variants** (2–3 per scenario)
-   ```python
-   def to_colloquial(parsed_input):
-       item = parsed_input["item_name"]
-       price = parsed_input["original_price"]
-       cost = parsed_input["cost"]
-       stock = parsed_input["stock"]
-       days = parsed_input["days_remaining"]
-       shop = parsed_input["shop_name"]
-       
-       # Price abbreviation
-       if price >= 1000000:
-           price_str = f"{price/1000000:.1f}jt"
-       elif price >= 1000:
-           price_str = f"{price//1000}rb"
-       else:
-           price_str = str(price)
-       
-       # Cost abbreviation
-       if cost >= 1000000:
-           cost_str = f"{cost/1000000:.1f}jt"
-       elif cost >= 1000:
-           cost_str = f"{cost//1000}rb"
-       else:
-           cost_str = str(cost)
-       
-       # Days colloquial
-       if days == 0:
-           days_str = "hari ini"
-       elif days == 1:
-           days_str = "besok"
-       else:
-           days_str = f"{int(days)} hari"
-       
-       # Random unit word
-       unit = random.choice(["pcs", "biji", "buah", ""])
-       
-       # Variant 1: standard colloquial
-       v1 = f"{item} {stock} {unit} exp {days_str} harga {price_str} modal {cost_str} {shop}".strip()
-       
-       # Variant 2: shorter
-       v2 = f"{item} {stock}{unit} exp {days_str} {price_str} modal {cost_str} {shop}".strip()
-       
-       # Variant 3: structured-ish
-       v3 = f"Item: {item}\nStok: {stock}\nKadaluarsa: {days_str}\nHarga: {price}\nModal: {cost}\nToko: {shop}"
-       
-       return [v1, v2, v3]
-   ```
-
-5. **Format as chat JSONL**
-   ```python
-   for scenario in scenarios:
-       for input_text in [structured_input] + colloquial_variants:
-           example = {
-               "messages": [
-                   {"role": "system", "content": SYSTEM_PROMPT},
-                   {"role": "user", "content": input_text},
-                   {"role": "assistant", "content": json.dumps({
-                       "parsed_input": scenario["parsed_input"],
-                       "explanation": scenario["explanation"],
-                       "promo_copy": scenario["promo_copy"]
-                   }, ensure_ascii=False)}
-               ]
-           }
-           write_jsonl(example)
-   ```
-
-### 4.2 Data Size & Split
-
-| Baseline Accuracy | Training Examples | Train/Eval Split |
-|---|---|---|
-| ≥85% | 2,000–3,000 scenarios × 3 variants = 6,000–9,000 | 90/10 |
-| 60–85% | 4,000–5,000 scenarios × 3 variants = 12,000–15,000 | 90/10 |
-| <60% | 5,000–8,000 scenarios × 3 variants = 15,000–24,000 | 90/10 |
-
-**Output:** `data/train.jsonl`, `data/eval.jsonl`
-
-### 4.3 Edge Cases (10–15% of dataset)
-
-Inject special scenarios:
-- `days_remaining > shelf_life * 0.8` → "no action needed" response
-- `days_remaining < 1` → fire sale explanation
-- `days_remaining <= 0` → already expired warning
-- `stock <= 2` → very low stock
-- `cost >= original_price` → zero/negative margin warning
-- Missing field (e.g., no `cost`) → `parsed_input` has `null`
+The old single-pass target asked the model to decide whether a discount was needed before it received the engine result. That implicitly trained pricing logic into the model and could contradict the deterministic engine. The two-task contract makes the boundary testable and prevents conflicting recommendations.
 
 ---
 
-## 5. QLoRA Configuration
+## 3. Dataset design
 
-### 5.1 Hyperparameters
+### 3.1 Dataset units
 
-| Parameter | Value | Rationale |
-|---|---|---|
-| **LoRA rank (r)** | 16 / 32 / 64 | Scaled to baseline gap (see §1.3) |
-| **LoRA alpha** | 32 / 64 / 128 | Typically 2× rank |
-| **Target modules** | `q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj` | All linear layers (standard for Qwen) |
-| **LoRA dropout** | 0.0 | Narrow task, no regularization needed |
-| **Bias** | `none` | Standard for LoRA |
-| **Learning rate** | `2e-4` | Standard for QLoRA |
-| **LR scheduler** | `cosine` | Smooth decay |
-| **Warmup ratio** | `0.05` | 5% warmup steps |
-| **Epochs** | 1–3 | Scaled to baseline gap |
-| **Per-device batch size** | `2` | Fits 8GB VRAM |
-| **Gradient accumulation** | `8` | Effective batch = 16 |
-| **Max seq length** | `1024` | Our prompts are <1K tokens |
-| **Optimizer** | `adamw_8bit` | bitsandbytes, saves VRAM |
-| **Weight decay** | `0.01` | Light regularization |
-| **bf16** | `True` | Mixed precision |
-| **Gradient checkpointing** | `True` | Saves VRAM |
-| **4-bit quant type** | `nf4` | NormalFloat4 (QLoRA standard) |
-| **Double quantization** | `True` | Quantize the quantization constants |
-| **Seed** | `3407` | Reproducibility |
+Generate a canonical **scenario** first. Each scenario has a stable `scenario_id`, normalized values, and an engine result. Derive examples from that scenario only after assigning its split.
 
-**VRAM estimate:** ~5–6 GB (Qwen3.5-4B QLoRA with these settings). Fits 8GB GPU.
+```json
+{
+  "scenario_id": "bakery-000123",
+  "split": "train",
+  "normalized_input": {},
+  "engine_result": {}
+}
+```
 
-### 5.2 Unsloth Setup
+A scenario can create:
+
+- 2–3 parse examples with different free-text variants;
+- missing/ambiguous parse variants where appropriate;
+- one or more write examples for the engine result.
+
+Report both **scenario count** and **example count**. Never call augmented variants independent scenarios.
+
+### 3.2 Leakage-safe split
+
+Split by `scenario_id` **before** paraphrasing or template expansion:
+
+```text
+80% train / 10% validation / 10% synthetic test
+```
+
+All variants of one scenario must remain in one split. Add an automated assertion that the three scenario-ID sets are disjoint.
+
+Also maintain `data/gold_test.jsonl`: at least 200 manually authored or manually verified examples that are not produced by the training generator or its templates. It should cover all categories, common slang, missing fields, ambiguous units, status types, and difficult numeric forms.
+
+The gold test set is the primary pre/post comparison. The synthetic validation set is for training diagnostics, not the final quality claim.
+
+### 3.3 Exact value generation
+
+Generate values that can be represented exactly in their rendered input. Never truncate a source value while keeping the untruncated label.
 
 ```python
-from unsloth import FastLanguageModel
-import torch
+original_price = random.randrange(2_000, 150_001, 500)
+cost = random.randrange(1_000, original_price + 1, 500)
+stock = random.randint(1, 100)
+days_remaining = random.randint(0, max_days)
+daily_sales = random.randint(1, 50)
+total_shelf_life = CATEGORY_SHELF_LIFE[category]
+```
 
-# Load base model in 4-bit
-model, tokenizer = FastLanguageModel.from_pretrained(
-    model_name="unsloth/Qwen3.5-4B",
-    max_seq_length=1024,
-    dtype=None,  # auto-detect (bf16)
-    load_in_4bit=True,  # QLoRA
+Use deterministic reversible renderers:
+
+```python
+def render_rupiah(value: int, style: str) -> str:
+    if style == "full":
+        return str(value)
+    if style == "rb" and value % 1_000 == 0:
+        return f"{value // 1_000}rb"
+    return str(value)  # never round or truncate
+
+
+def render_days(value: int) -> str:
+    return {0: "hari ini", 1: "besok"}.get(value, f"{value} hari")
+```
+
+Generator validation must parse each rendered variant with the deterministic normalization helpers and assert that every explicit value round-trips to its label.
+
+### 3.4 Parse-data coverage
+
+Include:
+
+- `rb`, `ribu`, `k`, decimal `jt`, dots, and plain Rupiah where exactly representable;
+- `pcs`, `biji`, `buah`, `porsi`, and omitted units;
+- `hari ini`, `besok`, `lusa`, explicit dates where supported, and integer day counts;
+- spelling variants such as `exp`, `expired`, `kadaluarsa`, and `kedaluwarsa`;
+- reordered phrases, multiline form-like text, punctuation noise, and casing differences;
+- explicitly missing `cost`, `daily_sales`, `total_shelf_life`, and other required fields;
+- genuinely ambiguous values whose target is `null` plus `needs_confirmation: true`.
+
+Do not train the model to guess a category, cost, sales rate, or shelf life from insufficient evidence.
+
+### 3.5 Write-data coverage
+
+Generate writing targets only after the production pricing function returns an engine result. Cover:
+
+- normal recommendation;
+- `no_action`;
+- expired item warning;
+- zero/negative-margin warning;
+- invalid-input warning;
+- low and high confidence;
+- every product category and urgency band.
+
+Template-generated prose is acceptable for an initial dataset, but manually review a stratified sample and avoid repeating a tiny set of sentence skeletons. Any LLM-assisted augmentation must be reviewed, provenance-tagged, and must not introduce unsupported numbers.
+
+### 3.6 Dataset quality gates
+
+The generator must fail before writing final files if any check fails:
+
+1. JSON parses and validates against the task schema.
+2. Scenario IDs do not overlap between splits.
+3. Explicit rendered numbers round-trip exactly.
+4. Parse targets contain no recommendation fields.
+5. Write inputs contain a recorded engine result.
+6. Write outputs contain no number absent from their input.
+7. Required edge-case quotas and category quotas are met.
+8. A fixed seed reproduces scenario IDs and labels.
+
+---
+
+## 4. Baseline and evaluation
+
+### 4.1 Evaluation order
+
+Run the same frozen test harness and prompts against:
+
+1. base Q8_0 GGUF — highest-quality local baseline;
+2. base Q4_K_M GGUF — deployment-quant baseline;
+3. BF16 LoRA adapter or merged model — pre-quantization fine-tuned result;
+4. fine-tuned Q8_0 GGUF — export check;
+5. fine-tuned Q4_K_M GGUF — final deployment candidate.
+
+This separates fine-tuning gain from quantization loss. Record artifact SHA-256, prompt version, chat template, llama.cpp build, seed, and decoding settings with every run.
+
+### 4.2 Parse metrics
+
+Measure on the frozen gold test set:
+
+| Metric | Required gate |
+|---|---:|
+| Valid JSON and schema | ≥99% |
+| Accuracy per required field | ≥95% |
+| Complete-record exact match | ≥90% |
+| Missing/ambiguous-field recall | ≥95% |
+| False completion rate | ≤2% |
+
+`False completion` means `needs_confirmation: false` when a required field is absent or ambiguous. It is a safety-critical failure and must not be hidden inside an average.
+
+### 4.3 Write metrics
+
+On at least 100 stratified gold cases, reviewers score:
+
+- faithfulness to engine status and numbers;
+- Indonesian clarity;
+- promo appropriateness;
+- unsupported numerical claims;
+- whether `no_action`/warning cases incorrectly advertise a discount.
+
+Required gates:
+
+| Metric | Required gate |
+|---|---:|
+| Engine-status faithfulness | ≥98% |
+| Unsupported numerical claims | 0 |
+| Mean clarity score (1–5) | ≥4.0 |
+| Inappropriate promo on no-action/warning | 0 |
+
+Use at least two reviewers for a smaller adjudicated subset and document the rubric. Do not report “would click” as objective accuracy.
+
+### 4.4 End-to-end engine metrics
+
+`no_action`, margin floors, expired-item behavior, discount bounds, and deterministic pricing are pricing-engine/API tests—not model metrics. Test them separately against the SRS acceptance cases.
+
+### 4.5 Acceptance decision
+
+Fine-tuning is accepted only if all mandatory parse/write gates pass and:
+
+- complete-record exact match improves by at least 5 percentage points over the matching base-model format, or the base already passes every gate and fine-tuning causes no material regression;
+- final Q4_K_M stays within 2 percentage points of the fine-tuned Q8_0 result on complete-record accuracy;
+- final Q4_K_M passes all safety and faithfulness gates;
+- results are measured, saved, and reproducible.
+
+Valid JSON alone is never sufficient.
+
+---
+
+## 5. BF16 LoRA training configuration
+
+### 5.1 Initial configuration
+
+Use a conservative first run and change one variable at a time:
+
+| Parameter | Initial value |
+|---|---:|
+| Base checkpoint | `unsloth/Qwen3.5-4B` |
+| Precision | BF16 LoRA (`load_in_4bit=False`, `load_in_16bit=True`) |
+| LoRA rank / alpha | 16 / 16 |
+| Target modules | `q_proj,k_proj,v_proj,o_proj,gate_proj,up_proj,down_proj` |
+| LoRA dropout | 0 |
+| Batch size | 1 |
+| Gradient accumulation | 8 |
+| Effective batch | 8 |
+| Max sequence length | 1024 initially |
+| Learning rate | `2e-4` initial experiment |
+| Epochs | 1 initial experiment; continue only from validation evidence |
+| Optimizer | `adamw_8bit` |
+| Gradient checkpointing | `unsloth` |
+| Seed | 3407 |
+
+Do not choose rank or dataset size solely from baseline accuracy. Increase rank, epochs, or examples only after diagnosing a specific error pattern and checking validation loss/quality.
+
+### 5.2 Environment preflight
+
+Use the environment in which Unsloth was installed; do not assume the system `python` points to it.
+
+```bash
+command -v unsloth
+command -v python
+python -c 'import unsloth, transformers, trl, torch; print(unsloth.__file__); print(transformers.__version__); print(trl.__version__); print(torch.__version__); print(torch.cuda.get_device_name())'
+nvidia-smi
+```
+
+Record the output in the training report. Confirm Transformers major version 5 and a GPU with at least 12 GB usable VRAM before loading Qwen3.5-4B BF16.
+
+The actual lock file or environment export must pin the versions that pass the smoke run. Do not retain the old CUDA-12.1/Torch-2.4 installation command as a universal recipe.
+
+### 5.3 Required smoke run
+
+Before a full run:
+
+1. Build 20 train, 10 validation, and 20 gold-test examples covering both tasks.
+2. Validate all dataset quality gates.
+3. Run 10 training steps.
+4. Save and reload the adapter.
+5. Evaluate at least one parse and one write example.
+6. Export Q8_0 and Q4_K_M GGUFs.
+7. Run both through the same llama.cpp chat template used by evaluation.
+8. Record peak VRAM and wall-clock time.
+
+Only then approve the full run. Compilation of Qwen3.5 custom kernels may make first startup slower than later runs.
+
+### 5.4 Training-data formatting
+
+Convert each chat example to the tokenizer's exact chat template before SFT and ensure the trainer receives a `text` field. Do not assume raw `messages` will be formatted automatically across TRL versions.
+
+Mask or otherwise exclude user/system tokens from loss if the verified trainer configuration supports it; document the choice. Preserve the same chat template and EOS behavior during adapter, merged, and GGUF evaluation.
+
+### 5.5 Full-run procedure
+
+The scripts below are deliverables and must exist before these commands are advertised as runnable:
+
+```bash
+python scripts/generate_training_data.py --seed 3407 --output-dir data
+python scripts/validate_training_data.py --data-dir data
+python scripts/eval_model.py --backend llama-cpp --model models/baseline/qwen3.5-4b-q8_0.gguf --suite data/gold_test.jsonl --report reports/base-q8.json
+python scripts/eval_model.py --backend llama-cpp --model models/baseline/qwen3.5-4b-q4_k_m.gguf --suite data/gold_test.jsonl --report reports/base-q4.json
+python scripts/train.py --config configs/train-qwen35-4b-lora.yaml
+python scripts/eval_model.py --backend unsloth --model models/finetuned/hargaturun-lora --suite data/gold_test.jsonl --report reports/adapter.json
+```
+
+Until those files exist and pass `--help` plus the smoke run, this section is a required interface—not a claim that the repository is training-ready.
+
+---
+
+## 6. Export and local serving
+
+### 6.1 Export both comparison artifacts
+
+Export directly from the loaded fine-tuned model using Unsloth's supported API:
+
+```python
+model.save_pretrained_gguf(
+    "models/finetuned/hargaturun-qwen3.5-4b-q8_0",
+    tokenizer,
+    quantization_method="q8_0",
 )
-
-# Apply LoRA adapters
-model = FastLanguageModel.get_peft_model(
-    model,
-    r=16,  # or 32/64 based on baseline
-    target_modules=[
-        "q_proj", "k_proj", "v_proj", "o_proj",
-        "gate_proj", "up_proj", "down_proj"
-    ],
-    lora_alpha=32,  # or 64/128
-    lora_dropout=0.0,
-    bias="none",
-    use_gradient_checkpointing="unsloth",  # Unsloth's optimized version
-    random_state=3407,
-    use_rslora=False,
-    loftq_config=None,
+model.save_pretrained_gguf(
+    "models/finetuned/hargaturun-qwen3.5-4b-q4_k_m",
+    tokenizer,
+    quantization_method="q4_k_m",
 )
 ```
 
----
+Do not use the old export snippet that accepted `--output` but ignored it. Keep adapters, merged/pre-quantization output, GGUFs, training config, logs, hashes, and reports as fine-tuning evidence.
 
-## 6. Training Procedure
+### 6.2 Serving profile
 
-### 6.1 Step-by-Step Runbook
+The final local server uses the fine-tuned Q4_K_M artifact and the exact chat template used in evaluation. Follow `HargaTurun_LLM_Server_Setup.md` for Docker and llama.cpp details.
 
-**Step 1: Prepare environment**
+For deterministic competition inference, use fixed decoding settings and disable thinking. Treat deterministic settings as a product constraint even if the model vendor's general-chat recommendation uses sampling.
+
+### 6.3 Artifact promotion
+
+Promote a model to the serving path only after evaluation:
+
 ```bash
-# Create venv
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# venv\Scripts\activate  # Windows
-
-# Install dependencies
-pip install "unsloth[cu121-torch240] @ git+https://github.com/unslothai/unsloth.git"
-pip install trl bitsandbytes accelerate datasets
+cp models/finetuned/hargaturun-qwen3.5-4b-q4_k_m/*.gguf \
+   models/hargaturun-qwen3.5-4b-q4_k_m.gguf
+sha256sum models/hargaturun-qwen3.5-4b-q4_k_m.gguf
 ```
 
-**Step 2: Generate training data**
-```bash
-python scripts/generate_training_data.py \
-    --num-scenarios 4000 \
-    --output-dir data/
-```
-Output: `data/train.jsonl`, `data/eval.jsonl`
-
-**Step 3: Run training**
-```bash
-python scripts/train.py \
-    --train-data data/train.jsonl \
-    --eval-data data/eval.jsonl \
-    --model-name unsloth/Qwen3.5-4B \
-    --output-dir models/hargaturun-qwen3.5-4b-lora \
-    --lora-r 16 \
-    --lora-alpha 32 \
-    --epochs 2 \
-    --batch-size 2 \
-    --grad-accum 8 \
-    --lr 2e-4
-```
-
-**Step 4: Evaluate**
-```bash
-python scripts/eval_model.py \
-    --model-path models/hargaturun-qwen3.5-4b-lora \
-    --eval-data data/eval.jsonl
-```
-
-**Step 5: Export to GGUF**
-```bash
-python scripts/export_gguf.py \
-    --model-path models/hargaturun-qwen3.5-4b-lora \
-    --output models/hargaturun-qwen3.5-4b-q4_k_m.gguf \
-    --quant q4_k_m
-```
-
-**Step 6: Test in llama.cpp**
-```bash
-llama-cli \
-    -m models/hargaturun-qwen3.5-4b-q4_k_m.gguf \
-    -ngl 99 \
-    -c 1024 \
-    --temp 0.0 \
-    -p "Anda adalah asisten HargaTurun..." \
-    --interactive
-```
-
-### 6.2 Training Script (`scripts/train.py`)
-
-```python
-from unsloth import FastLanguageModel
-from trl import SFTTrainer, SFTConfig
-from datasets import load_dataset
-import torch
-import argparse
-
-def main(args):
-    # Load model
-    model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name=args.model_name,
-        max_seq_length=1024,
-        dtype=None,
-        load_in_4bit=True,
-    )
-    
-    # Apply LoRA
-    model = FastLanguageModel.get_peft_model(
-        model,
-        r=args.lora_r,
-        target_modules=[
-            "q_proj", "k_proj", "v_proj", "o_proj",
-            "gate_proj", "up_proj", "down_proj"
-        ],
-        lora_alpha=args.lora_alpha,
-        lora_dropout=0.0,
-        bias="none",
-        use_gradient_checkpointing="unsloth",
-        random_state=3407,
-    )
-    
-    # Load dataset
-    train_dataset = load_dataset("json", data_files=args.train_data, split="train")
-    eval_dataset = load_dataset("json", data_files=args.eval_data, split="train")
-    
-    # Training config
-    trainer = SFTTrainer(
-        model=model,
-        tokenizer=tokenizer,
-        train_dataset=train_dataset,
-        eval_dataset=eval_dataset,
-        args=SFTConfig(
-            per_device_train_batch_size=args.batch_size,
-            gradient_accumulation_steps=args.grad_accum,
-            warmup_ratio=0.05,
-            num_train_epochs=args.epochs,
-            learning_rate=args.lr,
-            logging_steps=10,
-            lr_scheduler_type="cosine",
-            optim="adamw_8bit",
-            weight_decay=0.01,
-            bf16=True,
-            max_seq_length=1024,
-            output_dir=args.output_dir,
-            save_steps=100,
-            save_total_limit=3,
-            evaluation_strategy="steps",
-            eval_steps=100,
-            seed=3407,
-            report_to="none",  # no wandb
-        ),
-    )
-    
-    # Train
-    trainer.train()
-    
-    # Save LoRA adapters
-    model.save_pretrained(args.output_dir)
-    tokenizer.save_pretrained(args.output_dir)
-    
-    print(f"Training complete. LoRA adapters saved to {args.output_dir}")
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--train-data", required=True)
-    parser.add_argument("--eval-data", required=True)
-    parser.add_argument("--model-name", default="unsloth/Qwen3.5-4B")
-    parser.add_argument("--output-dir", default="models/hargaturun-lora")
-    parser.add_argument("--lora-r", type=int, default=16)
-    parser.add_argument("--lora-alpha", type=int, default=32)
-    parser.add_argument("--epochs", type=int, default=2)
-    parser.add_argument("--batch-size", type=int, default=2)
-    parser.add_argument("--grad-accum", type=int, default=8)
-    parser.add_argument("--lr", type=float, default=2e-4)
-    args = parser.parse_args()
-    main(args)
-```
+Adjust the source glob to the actual Unsloth export filename. Never present a base GGUF copied to this path as the fine-tuned competition artifact.
 
 ---
 
-## 7. Evaluation
+## 7. Failure handling and iteration
 
-### 7.1 Metrics & Targets
-
-| Metric | Target | How Measured |
+| Failure | First diagnosis | Corrective action |
 |---|---|---|
-| **JSON schema compliance** | >95% | Automated: response parses as valid JSON with required keys |
-| **Parse accuracy (field-level)** | >90% | Automated: compare `parsed_input` fields to ground truth |
-| **Explanation coherence** | >90% "clear" | Manual eval on 50 samples (Bahasa Indonesia native speaker) |
-| **Promo copy quality** | >85% "would click" | Manual eval on 50 samples |
-| **"No action" correctness** | >90% | Automated: low-pressure inputs → `no_action: true` |
+| JSON/schema failures | Prompt/chat-template mismatch | Verify template and EOS first; then add targeted examples |
+| Incorrect explicit numbers | Generator or normalization bug | Fix labels/renderer; do not compensate with more training |
+| Missing-field false completion | Inadequate ambiguity examples | Add targeted missing/ambiguous parse cases |
+| Writer contradicts engine | Task contamination or weak write prompt | Verify task separation; add status-faithful write cases |
+| Adapter good, GGUF bad | Quantization/template mismatch | Compare Q8_0, Q4_K_M, template, and EOS |
+| Overfitting | Validation worsens while train loss falls | Stop earlier or diversify data |
+| BF16 OOM | Training GPU below requirement | Use a larger GPU; reduce sequence/batch only after confirming model load fits |
 
-See Project Spec §13.1 for full eval spec.
-
-### 7.2 Eval Procedure
-
-**Automated eval script:** `scripts/eval_model.py`
-
-```python
-# Loads eval.jsonl, runs model on each input, compares parsed_input to ground truth
-# Reports:
-# - JSON validity %
-# - Field-level accuracy (category, original_price, cost, stock, days_remaining)
-# - Overall accuracy (all fields correct)
-# - Sample outputs for manual review
-```
-
-**Manual eval:** Print 50 random examples from eval set, rate explanation + promo quality (1-5 scale). Target: avg >4.0 ("clear" / "would click").
-
-### 7.3 Baseline Comparison
-
-After fine-tuning, re-run `scripts/baseline_eval.py` against the fine-tuned model (served via llama.cpp). Compare:
-
-| Metric | Base Model (zero-shot) | Fine-Tuned |
-|---|---|---|
-| JSON validity | ?% | ?% |
-| Parse accuracy | ?% | ?% |
-| Overall accuracy | ?% | ?% |
-
-**Success criterion:** Fine-tuned model shows ≥10% improvement in overall accuracy, or ≥95% JSON validity.
+Do not use rank increases as the default fix for every error. Correct data and contract errors before tuning hyperparameters.
 
 ---
 
-## 8. Export to GGUF (Serving)
+## 8. Proposal methodology mapping
 
-### 8.1 Export Script
+### 8.1 Dataset acquisition
 
-```python
-from unsloth import FastLanguageModel
-import argparse
+> Dataset utama dibuat secara sintetik dari skenario UMKM yang memiliki ID stabil. Skenario dibagi ke train, validation, dan test sebelum parafrase dibuat sehingga variasi dari satu skenario tidak bocor antar-split. Input kolokial dan target parsing divalidasi dengan round-trip numerik. Evaluasi akhir menggunakan sedikitnya 200 contoh gold yang ditulis atau diverifikasi manual dan tidak dihasilkan oleh template training.
 
-def main(args):
-    # Load base + LoRA
-    model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name=args.model_path,
-        max_seq_length=1024,
-        dtype=None,
-        load_in_4bit=True,
-    )
-    
-    # Merge LoRA into base (16-bit)
-    model = FastLanguageModel.merge_and_unload(model)
-    
-    # Export to GGUF with quantization
-    model.save_pretrained_gguf(
-        "merged_model",
-        tokenizer,
-        quantization_method=args.quant  # "q4_k_m"
-    )
-    
-    print(f"GGUF exported to merged_model/{args.quant}.gguf")
+### 8.2 Model development
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model-path", required=True)
-    parser.add_argument("--output", default="models/hargaturun-qwen3.5-4b-q4_k_m.gguf")
-    parser.add_argument("--quant", default="q4_k_m")
-    args = parser.parse_args()
-    main(args)
-```
+> Qwen3.5-4B di-fine-tune menggunakan BF16 LoRA melalui Unsloth pada GPU dengan memori yang memadai. QLoRA tidak digunakan karena panduan Unsloth saat ini tidak merekomendasikan training 4-bit untuk Qwen3.5. Model mempelajari dua task eksplisit: parsing input ke field terstruktur dan penulisan teks berdasarkan hasil pricing engine. Seluruh perhitungan harga tetap dilakukan oleh Python secara deterministik.
 
-### 8.2 Serving with llama.cpp
+### 8.3 Integration
 
-```bash
-llama-server \
-    -m models/hargaturun-qwen3.5-4b-q4_k_m.gguf \
-    -c 1024 \
-    -ngl 99 \
-    --host 0.0.0.0 \
-    --port 8080 \
-    --temp 0.0 \
-    --top-p 1.0 \
-    --top-k 40
-```
+> Untuk input bebas, backend memanggil task parse, meminta konfirmasi jika field wajib belum tersedia, menjalankan pricing engine setelah data lengkap, lalu memanggil task write dengan hasil engine. Model hasil fine-tuning diekspor ke Q8_0 untuk pemeriksaan kualitas dan Q4_K_M untuk serving lokal melalui llama.cpp. Satu interaksi pengguna tetap sinkron meskipun backend dapat melakukan dua inferensi model.
 
-**API endpoint:** `http://localhost:8080/v1/chat/completions` (OpenAI-compatible)
+### 8.4 Data-driven decisions
+
+> Base Q8_0 dan Q4_K_M dievaluasi pada gold test yang sama sebelum training. Adapter BF16, hasil export Q8_0, dan hasil export Q4_K_M kemudian dibandingkan dengan prompt, chat template, dan decoding yang dibekukan. Model hanya dipromosikan jika lolos seluruh gate parsing, missing-field safety, faithfulness, dan quantization regression; JSON valid saja tidak dianggap cukup.
+
+Do not copy target percentages into the proposal as achieved results until the reports exist.
 
 ---
 
-## 9. Iteration & Troubleshooting
+## 9. Deliverables and execution order
 
-### 9.1 If Eval Fails Targets
+| Order | Deliverable | Exit condition |
+|---:|---|---|
+| 1 | Production `pricing.py` + tests | All SRS arithmetic/safety cases pass |
+| 2 | Frozen parse/write schemas and prompts | API/SRS contract review passes |
+| 3 | Gold test set | ≥200 reviewed examples, no generator provenance |
+| 4 | Dataset generator + validator | All §3.6 gates pass |
+| 5 | Base Q8_0 and Q4_K_M reports | Same harness/config, hashes recorded |
+| 6 | 10-step BF16 LoRA smoke run | Save/reload/export/inference succeeds |
+| 7 | Full training run | Config, logs, adapters, and environment recorded |
+| 8 | Adapter/Q8_0/Q4_K_M reports | All §4 gates pass |
+| 9 | Final local server smoke test | Fine-tuned artifact hash and API result recorded |
 
-| Problem | Diagnosis | Fix |
-|---|---|---|
-| JSON validity <95% | Model drifts from schema | Add more training examples, increase LoRA rank (16→32→64) |
-| Parse accuracy <90% | Colloquial variants not covered | Generate more diverse free-text variants (slang, abbreviations) |
-| Explanation incoherent | Templates too rigid | Add LLM-augmented explanation diversity (use base Qwen to generate 5 variants per scenario) |
-| Overfitting (train loss →0, eval loss ↑) | Too many epochs or too small dataset | Reduce epochs (3→2→1), increase dataset size |
-| VRAM OOM | Batch size too large | Reduce `per_device_train_batch_size` to 1, increase `gradient_accumulation_steps` to 16 |
-
-### 9.2 Hyperparameter Tuning (if needed)
-
-Start with defaults (§5.1). If eval fails after 2 iterations:
-- Try LoRA rank 32 or 64
-- Try learning rate 1e-4 or 3e-4
-- Try epochs 1 or 3
-
-Do **not** grid search. Adjust one parameter at a time, re-eval.
+The next implementation priority is the frozen schemas, gold-test format, dataset generator validation, and baseline evaluator—not a full training run.
 
 ---
 
-## 10. Proposal Mapping (Methodology Section)
+## References
 
-This fine-tuning plan feeds directly into the **Proposal PDF §4 Metodologi** (max 20 pages):
+- Unsloth Qwen3.5 fine-tuning guide: <https://unsloth.ai/docs/models/qwen3.5/fine-tune>
+- Unsloth Qwen3.5 inference guide: <https://unsloth.ai/docs/models/qwen3.5>
+- Local llama.cpp setup: `docs/HargaTurun_LLM_Server_Setup.md`
+- Preliminary product contract: `docs/HargaTurun_Penyisihan_SRS.md`
 
-### 10.1 Alur Memperoleh Dataset (Data Acquisition Flow)
-
-> "Dataset diperoleh melalui generasi sintetik berbasis oracle formula (Project Spec §9.5).
-> Skenario pricing di-generate secara acak (5.000–8.000 contoh) mencakup 8 kategori produk,
-> rentang harga Rp2.000–Rp150.000, dan variasi input kolokial Bahasa Indonesia.
-> Setiap skenario diproses melalui oracle untuk memperoleh ground-truth numerik,
-> lalu explanation dan promo copy di-generate menggunakan template berbasis kategori dan urgensi.
-> Data dibagi 90% training / 10% evaluasi."
-
-### 10.2 Alur Pengembangan Model (Model Development Flow)
-
-> "Model dasar Qwen3.5-4B di-fine tune menggunakan QLoRA (4-bit NF4 + LoRA adapters)
-> dengan library Unsloth. Arsitektur hybrid memisahkan tugas: model hanya belajar NLU
-> (parsing input kolokial → JSON terstruktur) dan NLG (explanation + promo copy),
-> sementara perhitungan pricing dilakukan oleh Python pricing engine (oracle formula).
-> Hyperparameter: LoRA rank 16/32/64 (disesuaikan dengan baseline gap), learning rate 2e-4,
-> batch size efektif 16, 1–3 epoch. Training dilakukan pada GPU 8GB VRAM, ~5-6 GB terpakai."
-
-### 10.3 Alur Integrasi Model ke Environment Kode (Model Integration Flow)
-
-> "Model hasil fine-tuning di-export ke format GGUF (Q4_K_M, ~2.5 GB) dan di-serve
-> menggunakan llama.cpp dengan API OpenAI-compatible. Backend FastAPI memanggil model
-> via HTTP POST ke /v1/chat/completions, mengirim system prompt + user input,
-> menerima JSON berisi parsed_input + explanation + promo_copy.
-> Python pricing engine kemudian menghitung discount, recommended price, dan proyeksi
-> berdasarkan parsed_input, lalu meng-assemble respons akhir ke frontend.
-> Seluruh sistem di-deploy via Docker Compose (3 service: model-server, api, frontend)."
-
-### 10.4 Decision Making Berbasis Data (Data-Driven Decisions)
-
-> "Sebelum fine-tuning, dilakukan baseline evaluation terhadap Qwen3.5-4B zero-shot
-> pada 16 test case kolokial Bahasa Indonesia. Hasil baseline menentukan intensitas
-> fine-tuning: jika akurasi ≥85%, cukup light fine-tuning (2-3K data, rank 16, 1-2 epoch);
-> jika 60-85%, standard fine-tuning (4-5K data, rank 32, 2 epoch);
-> jika <60%, full fine-tuning (5-8K data, rank 64, 2-3 epoch).
-> Pendekatan ini memastikan effort fine-tuning proporsional dengan kebutuhan,
-> tidak over-engineering."
-
----
-
-## 11. Timeline & Deliverables
-
-| Task | Duration | Output |
-|---|---|---|
-| Write `pricing.py` (oracle) | 1 day | `pricing.py` (deterministic, testable) |
-| Write `generate_training_data.py` | 1 day | Script + `data/train.jsonl`, `data/eval.jsonl` |
-| Run baseline eval | 0.5 day | Baseline accuracy report |
-| Fine-tune (QLoRA) | 2–4 hours | `models/hargaturun-lora/` (LoRA adapters) |
-| Eval fine-tuned model | 0.5 day | Eval report, manual review |
-| Export to GGUF | 0.5 hour | `models/hargaturun-qwen3.5-4b-q4_k_m.gguf` |
-| Test in llama.cpp | 0.5 hour | Verify inference works, temp=0 deterministic |
-| Iterate if needed | 1–2 days | Adjust hyperparameters, re-train, re-eval |
-
-**Total:** ~4–6 days (excluding iteration).
-
----
-
-*This plan is a living document. Adjust hyperparameters and data size based on baseline eval results.*
+*This is a living runbook. Update version pins, measured VRAM, artifact hashes, and evaluation results from actual runs; do not replace evidence with estimates.*

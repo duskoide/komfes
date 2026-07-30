@@ -1,0 +1,89 @@
+services:
+  llm-server:
+    # Use this floating tag only for initial validation. Pin the tested image
+    # digest before recording the proof of work or submitting the repository.
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    pull_policy: missing
+    gpus: all
+
+    # The model server is reachable from the host only on loopback. When this
+    # service is merged into the full application Compose file, FastAPI should
+    # call http://llm-server:8080/v1 over the Compose network.
+    ports:
+      - "127.0.0.1:8080:8080"
+
+    volumes:
+      - ./models:/models:ro
+
+    command:
+      - --model
+      - /models/hargaturun-qwen3.5-4b-q4_k_m.gguf
+      - --alias
+      - hargaturun-qwen3.5-4b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8080"
+
+      # HargaTurun uses short, independent requests. The model's 262K maximum
+      # context is unnecessary and would waste memory.
+      - --ctx-size
+      - "4096"
+      - --n-predict
+      - "350"
+      - --parallel
+      - "1"
+
+      # Fully offload the 4-bit 4B model to the RTX 4060 Laptop GPU.
+      - --n-gpu-layers
+      - all
+      - --split-mode
+      - none
+      - --flash-attn
+      - "on"
+      - --fit
+      - "off"
+      - --batch-size
+      - "512"
+      - --ubatch-size
+      - "128"
+      - --cache-type-k
+      - f16
+      - --cache-type-v
+      - f16
+
+      # Static defaults required by the MVP. FastAPI must send the same values
+      # on every request because request parameters can override these defaults.
+      - --temperature
+      - "0"
+      - --top-k
+      - "0"
+      - --top-p
+      - "1"
+      - --min-p
+      - "0"
+      - --repeat-penalty
+      - "1"
+      - --seed
+      - "42"
+      - --reasoning
+      - "off"
+      - --reasoning-budget
+      - "0"
+
+      # One-shot requests do not benefit enough from prompt caching or dynamic
+      # batching to justify extra state and reproducibility risk.
+      - --no-cache-prompt
+      - --cache-ram
+      - "0"
+      - --no-cont-batching
+
+      # HargaTurun is text-only and the server is not a user-facing web app.
+      - --no-mmproj
+      - --no-ui
+      - --offline
+      - --metrics
+      - --warmup
+
+    restart: unless-stopped
+    stop_grace_period: 30s

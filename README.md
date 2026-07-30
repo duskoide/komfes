@@ -15,9 +15,10 @@ The system is deliberately **hybrid**:
 
 The model never does arithmetic. Python never writes prose.
 
-> **Document status:** This repository currently contains specifications only (`docs/`). The flows below are the
-> contract that the implementation must satisfy. Setup/`docker compose` instructions belong in this file once the
-> code lands.
+> **Document status:** This repository currently contains specifications plus a standalone LLM-server setup. The
+> flows below are the contract that the implementation must satisfy. Full-application `docker compose` instructions
+> belong in this file once the API and frontend land; see the [LLM server setup](docs/HargaTurun_LLM_Server_Setup.md)
+> for the current CUDA inference service.
 
 ---
 
@@ -400,9 +401,10 @@ publish a price below the margin floor: rejected by the server
 |---|---|
 | [`UIUX_HANDOVER.md`](UIUX_HANDOVER.md) | **Per-screen requirements for the UI/UX team** — mobile app (phone + tablet), 24 screens, states, copy deck |
 | [`docs/HargaTurun_Project_Spec.md`](docs/HargaTurun_Project_Spec.md) | Problem, personas, the full oracle formula, model choice, business model, risks |
+| [`docs/HargaTurun_LLM_Server_Setup.md`](docs/HargaTurun_LLM_Server_Setup.md) | Standalone RTX 4060 CUDA model-server setup, smoke test, tuning, and troubleshooting |
 | [`docs/HargaTurun_Penyisihan_SRS.md`](docs/HargaTurun_Penyisihan_SRS.md) | **Authoritative** preliminary scope, API contract, acceptance criteria |
 | [`docs/HargaTurun_Final_SRS.md`](docs/HargaTurun_Final_SRS.md) | Final-round marketplace loop, data model, phased cut line |
-| [`docs/HargaTurun_FineTuning_Plan.md`](docs/HargaTurun_FineTuning_Plan.md) | QLoRA runbook — data generation, hyperparameters, eval, GGUF export |
+| [`docs/HargaTurun_FineTuning_Plan.md`](docs/HargaTurun_FineTuning_Plan.md) | BF16 LoRA runbook — task contracts, leakage-safe data, evaluation, GGUF export |
 | [`docs/AIC_Technical_Guide.md`](docs/AIC_Technical_Guide.md) | Competition rules, technical constraints only |
 | [`docs/AI_Innovation_Challenge.md`](docs/AI_Innovation_Challenge.md) | Full rulebook |
 

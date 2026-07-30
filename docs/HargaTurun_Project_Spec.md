@@ -172,16 +172,18 @@ then a lightweight read-only page that renders the assembled output.
 ║  ┌────────────────────────────────────────────────────────┐  ║
 ║  │  AI ENGINE — Hybrid (Model + Python Pricing Engine)    │  ║
 ║  │                                                        │  ║
-║  │  Step 1: Fine-tuned Qwen3.5-4B model (single inference) │  ║
-║  │    → parses input (structured or free-text)            │  ║
-║  │    → generates explanation (why this price)            │  ║
-║  │    → generates promotional copy                        │  ║
+║  │  Step 1: Fine-tuned Qwen3.5-4B parse task              │  ║
+║  │    → parses free text into structured fields           │  ║
+║  │    → flags missing/ambiguous required fields           │  ║
 ║  │                                                        │  ║
 ║  │  Step 2: Python pricing engine (deterministic, ~50 LOC)│  ║
-║  │    → computes discount %, recommended price, timing    │  ║
-║  │    → projects sell-through, revenue vs. loss           │  ║
-║  │    → assembles final deal JSON for consumer page       │  ║
+║  │    → runs only after inputs are confirmed              │  ║
+║  │    → computes discount, timing, and projections        │  ║
 ║  │    → enforces margin floor + bounds (5–70%)            │  ║
+║  │                                                        │  ║
+║  │  Step 3: Fine-tuned Qwen3.5-4B write task              │  ║
+║  │    → receives the authoritative engine result          │  ║
+║  │    → writes explanation and promotional copy           │  ║
 ║  └───────────────────────┬────────────────────────────────┘  ║
 ║                          ▼                                   ║
 ║  ┌────────────────────────────────────────────────────────┐  ║
@@ -309,7 +311,7 @@ then a lightweight read-only page that renders the assembled output.
 |---|---|---|
 | NFR-1 | **Inference latency** | < 10 seconds end-to-end (input → all outputs displayed) |
 | NFR-2 | **Hardware ceiling** | Must run on: 1× GPU 8GB VRAM + 20GB system RAM. No multi-GPU. |
-| NFR-3 | **Model size** | Qwen3.5-4B (4B parameters, 4-bit quantized for inference). ~2.5 GB VRAM at inference, ~4–5 GB for QLoRA training. Fits 8GB GPU with headroom. |
+| NFR-3 | **Model size** | Qwen3.5-4B (4B parameters), exported to Q4_K_M for local inference. The 8 GB laptop is the serving target; BF16 LoRA training uses a separate ≥12 GB GPU environment. |
 | NFR-4 | **Offline capability** | No internet required at inference time. Model weights bundled or pre-downloaded. |
 | NFR-5 | **Reproducibility** | Same input → same output (static parameters, greedy decoding). |
 | NFR-6 | **Modular architecture** | Clear separation: model layer / API layer / frontend layer. |
@@ -484,10 +486,10 @@ If the team advances to the 10-hour hackathon, priority upgrades:
 | **Architecture** | Transformer-based causal language model (decoder-only), multimodal (vision + text) |
 | **Parameters** | 4 billion (within competition 4–9B range) |
 | **Languages** | 201 languages, including Bahasa Indonesia |
-| **Quantization (inference)** | 4-bit (GGUF Q4_K_M via llama.cpp) → ~2.5 GB VRAM |
-| **Quantization (training)** | QLoRA via Unsloth → ~4–5 GB VRAM |
+| **Quantization (inference)** | GGUF Q4_K_M via llama.cpp; measure actual file and runtime VRAM |
+| **Training precision** | BF16 LoRA through Unsloth on a ≥12 GB GPU (16 GB preferred) |
 | **Context window** | 262,144 tokens (256K) — far exceeds the ~1K needed per interaction |
-| **Fine-tuning method** | QLoRA via Unsloth (LoRA rank 16–64, target: q/k/v/o/gate/up/down projections) |
+| **Fine-tuning method** | BF16 LoRA through Unsloth; initial rank 16, adjusted only from validation evidence |
 | **Fine-tuning data** | Custom dataset: pricing scenarios → dual output: NLU + NLG (see §10) |
 | **Inference mode** | Deterministic (temperature=0, greedy decoding) for reproducibility |
 | **Serving** | llama.cpp / vLLM via Docker container |
@@ -498,23 +500,24 @@ If the team advances to the 10-hour hackathon, priority upgrades:
 > - **Indonesian fluency:** 201-language pre-training with strong Indonesian coverage.
 >   The model's entire job is parsing colloquial Indonesian and generating natural
 >   Bahasa Indonesia text — this is the #1 selection criterion.
-> - **Right-sized:** 4B parameters fits the competition range (4–9B) and the 8GB VRAM
->   budget with headroom. The task is narrow NLU + NLG; 7B+ adds latency without
->   meaningful quality gain after domain fine-tuning.
+> - **Right-sized for local serving:** 4B parameters fits the competition range (4–9B)
+>   and the Q4_K_M artifact can be served on the 8 GB laptop. Fine-tuning is a separate
+>   BF16 LoRA workload and is not claimed to fit that inference machine.
 > - **Mature tooling:** Full Unsloth support (fine-tuning), standard llama.cpp / vLLM
 >   support (serving). No custom forks needed.
 > - **Free vision upgrade path:** Qwen3.5-4B is multimodal. The hackathon OCR upgrade
 >   (photograph product label → extract fields) can use the model's built-in vision
 >   instead of a separate OCR tool. No architecture change needed.
-> - **Fallback:** If Indonesian quality disappoints after fine-tuning, swap to
->   **Qwen3.5-9B** (same pipeline, one-line model ID change, ~8–10 GB QLoRA VRAM).
+> - **Fallback:** If Indonesian quality disappoints, first diagnose data and prompts.
+>   Qwen3.5-9B is not a one-line fallback: it requires a new memory preflight, baseline,
+>   fine-tuning run, export, and latency evaluation.
 >
 > **Candidates evaluated and rejected:**
 > | Model | Why rejected |
 > |---|---|
-> | Nanbeige4.2-3B | English + Chinese only, no Indonesian. Custom Looped Transformer architecture breaks standard QLoRA tooling. 3B below competition range. |
-> | Ternary Bonsai 27B | 27B params = 3× competition ceiling. QLoRA training needs ~14 GB VRAM. Requires PrismML's custom forks for serving. Overkill for NLU + NLG. |
-> | Qwen3.5-9B | Viable fallback, but ~8–10 GB QLoRA VRAM is tight on 8GB GPU. Start with 4B, upgrade only if needed. |
+> | Nanbeige4.2-3B | English + Chinese only, no Indonesian. Custom architecture complicates the selected tooling, and 3B is below the competition range. |
+> | Ternary Bonsai 27B | 27B parameters exceed the competition ceiling and local serving budget. |
+> | Qwen3.5-9B | Potentially stronger, but materially increases training and serving memory and latency; evaluate only if 4B misses measured quality gates. |
 > | Qwen2.5-7B-Instruct | Mature and reliable, but Qwen3.5-4B is newer with better per-parameter performance and built-in vision. |
 
 ### 9.2 Hybrid Architecture: Fine-Tuned Model + Deterministic Pricing Engine
@@ -523,11 +526,12 @@ The system splits responsibilities by what each component does best:
 
 | Component | Responsibility | Why |
 |---|---|---|
-| **Fine-tuned Qwen3.5-4B** | Parse input (structured + free-text), generate explanation, generate promo copy | Language understanding and generation — what LLMs excel at |
+| **Fine-tuned Qwen3.5-4B** | Task 1: parse free text and flag missing fields. Task 2: write explanation/promo from the engine result | Language understanding and generation — what LLMs excel at |
 | **Python pricing engine** | Compute discount %, recommended price, timing, sell-through, revenue/loss projections, assemble deal JSON, enforce bounds | Deterministic arithmetic — what code excels at. Uses the same oracle formula that generates training data (§10) |
 
-The model outputs parsed fields + natural language text. Python computes all numbers and
-assembles the final JSON. The model never performs arithmetic.
+For free text, the model first returns parsed fields and confirmation state. Python validates
+confirmed input and computes all numbers. A separate write task then receives the authoritative
+engine result and produces natural language. The model never performs pricing arithmetic.
 
 **Why not have the model do everything (pricing + text)?**
 
@@ -537,7 +541,7 @@ assembles the final JSON. The model never performs arithmetic.
 | Fine-tuning complexity | Must learn math + language simultaneously | **Language only** — smaller dataset, faster convergence |
 | Post-processing layer | ~50 lines of validation/clamping | **Mostly unnecessary** — numbers are correct by construction |
 | Competition rule ("model wajib di-fine tune") | ✅ | ✅ — model is still fine-tuned for NLU + NLG |
-| Latency | 1 model call | 1 model call + ~1ms Python — negligible |
+| Latency | 1 model call | Up to 2 short model calls + ~1ms Python; must meet the measured end-to-end target |
 | Debuggability | Pricing errors buried in model output | Pricing logic is readable, testable Python code |
 
 **Why not a separate ML model (XGBoost etc.) for pricing?**
@@ -546,10 +550,11 @@ in a separate ML model adds a second model to serve, a second container, and int
 complexity — for zero accuracy gain.
 
 **Model size constraints:**
-- Larger model (13B+) → doesn't fit 8GB VRAM for QLoRA training.
-- Smaller model (<3B) → insufficient capacity for reliable Indonesian NLU + NLG.
-- **Qwen3.5-4B** → 4B params, ~4–5 GB QLoRA VRAM, 201-language pre-training.
-  Sweet spot for this task. Fallback to Qwen3.5-9B if Indonesian quality is insufficient.
+- The 8 GB laptop constrains the final local GGUF serving profile, not the training host.
+- Models below 4B fall outside the stated competition range.
+- **Qwen3.5-4B** provides 201-language pre-training and a practical local Q4_K_M serving target.
+- Current Unsloth guidance estimates about 10 GB for 4B BF16 LoRA and advises against QLoRA
+  for Qwen3.5, so training uses a separate ≥12 GB environment.
 
 ### 9.3 Model Input/Output Contract
 
@@ -569,12 +574,14 @@ Nama Toko: Toko Sari Bakery
 roti tawar 10 biji exp 2 hari harga 15rb modal 10rb toko sari bakery
 ```
 
-#### Model Output (what the LLM produces)
+#### Parse-task output (free text only)
 
-The model outputs **parsed fields + natural language** — no arithmetic:
+The first model call extracts available facts and flags required confirmation; it does not write
+a recommendation:
 
 ```json
 {
+  "task": "parse",
   "parsed_input": {
     "item_name": "Roti Tawar",
     "category": "Bakery",
@@ -582,17 +589,19 @@ The model outputs **parsed fields + natural language** — no arithmetic:
     "cost": 10000,
     "stock": 10,
     "days_remaining": 2,
+    "daily_sales": null,
+    "total_shelf_life": null,
     "shop_name": "Toko Sari Bakery"
   },
-  "explanation": "Roti tawar punya shelf life pendek dan pembeli sangat sensitif harga. Dengan sisa 2 hari dan stok 10 pcs, diskon agresif dibutuhkan agar tidak terbuang. Tanpa aksi, sebagian besar stok akan hangus.",
-  "promo_copy": "🍞 Roti Tawar Fresh — diskon spesial! Buruan sebelum habis, sisa 2 hari saja!"
+  "missing_fields": ["daily_sales", "total_shelf_life"],
+  "needs_confirmation": true
 }
 ```
 
-#### Python Pricing Engine Output (assembled by backend)
-
-The Python engine takes `parsed_input`, runs the oracle formula, and produces the final
-response sent to the frontend:
+When any required field is missing or ambiguous, the API returns the confirmation form and stops.
+After confirmation, the Python engine runs the oracle formula. The second model call receives the
+confirmed normalized input plus that engine result and returns only `explanation` and `promo_copy`.
+The assembled backend response is:
 
 ```json
 {
@@ -620,10 +629,9 @@ response sent to the frontend:
 }
 ```
 
-> **Note:** The Python engine injects the computed numbers into the promo copy template
-> (e.g., replacing the generic "diskon spesial" with "30% OFF! Cuma Rp10.500") before
-> sending the final response. The model's promo copy serves as the base text; Python
-> enriches it with exact figures.
+> **Note:** The write task receives these exact engine values and may copy them into prose; it
+> must not recalculate or alter them. The backend validates that no unsupported numerical claim
+> appears before sending the final response.
 
 ### 9.4 Validation Layer
 
@@ -633,8 +641,9 @@ pricing engine produces correct numbers by construction. The remaining validatio
 | Check | Action |
 |---|---|
 | Model JSON output unparseable | Retry once; if still invalid, extract fields via regex fallback |
-| Model `parsed_input` has missing fields | Show structured form with pre-filled guesses; ask user to confirm |
-| Promo copy > 200 chars (after Python enrichment) | Truncate at last complete sentence |
+| Parse output has missing/ambiguous fields | Show the structured confirmation form; do not run pricing or writing |
+| Write output contradicts engine status or contains unsupported numbers | Reject/fallback to deterministic template |
+| Promo copy > 200 chars | Reject or truncate at the last complete sentence |
 
 The pricing engine itself enforces all numerical constraints internally:
 - Discount bounded 5–70% (clamped in formula)

@@ -135,13 +135,13 @@ FastAPI exposes one core synchronous endpoint. It validates normalized structure
 
 ### 5.4 Fine-tuned model server
 
-The selected base model and serving format must be documented and verified during implementation. The project currently plans Qwen3.5-4B with QLoRA and llama.cpp; this SRS does not claim availability or performance until it is tested. The model is genuinely fine-tuned for HargaTurun's Indonesian parsing and text-generation task, then served locally with static settings.
+The selected base model and serving format must be documented and verified during implementation. The project currently plans Qwen3.5-4B with BF16 LoRA through Unsloth and GGUF serving through llama.cpp. Current Unsloth guidance does not recommend QLoRA for Qwen3.5; BF16 LoRA training requires a GPU larger than the 8 GB inference laptop. This SRS does not claim availability or performance until the full pipeline is tested. The model is genuinely fine-tuned for HargaTurun's Indonesian parsing and text-generation tasks, then served locally with static settings.
 
 The model responsibility is limited to:
 
-- parse free text into allowed structured fields;
-- generate qualitative explanation;
-- generate qualitative promo copy.
+- parse free text into allowed structured fields and identify missing required fields;
+- after confirmed input is priced by the deterministic engine, generate a qualitative explanation;
+- after confirmed input is priced by the deterministic engine, generate qualitative promo copy.
 
 ### 5.5 Pricing engine
 
