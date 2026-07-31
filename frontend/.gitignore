@@ -10,7 +10,6 @@
 .pub-cache/
 .pub/
 build/
-pubspec.lock
 
 # ---------- Generated code ----------
 *.g.dart
