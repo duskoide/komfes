@@ -1,0 +1,53 @@
+# =========================================================
+# HargaTurun — Flutter .gitignore (frontend/)
+# =========================================================
+
+# ---------- Dart / Flutter tooling ----------
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+pubspec.lock
+
+# ---------- Generated code ----------
+*.g.dart
+*.freezed.dart
+*.mocks.dart
+
+# ---------- Platform folders (regenerate via `flutter create .`) ----------
+android/
+ios/
+linux/
+macos/
+windows/
+web/
+
+# ---------- Coverage & test ----------
+coverage/
+test/.test_coverage.dart
+
+# ---------- Env & secrets ----------
+.env
+.env.*
+!*.env.example
+
+# ---------- IDE ----------
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# ---------- OS ----------
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ---------- Logs ----------
+*.log
