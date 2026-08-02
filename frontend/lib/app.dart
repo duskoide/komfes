@@ -1,5 +1,6 @@
 import 'package:device_preview/device_preview.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/routing/app_router.dart';
 import 'core/theme/app_theme.dart';
@@ -19,6 +20,15 @@ class HargaTurun extends ConsumerWidget {
       routerConfig: router,
       locale: const Locale('id', 'ID'),
       supportedLocales: const [Locale('id', 'ID')],
+      // Wajib ada: tanpa delegate ini locale id_ID tidak punya
+      // MaterialLocalizations sama sekali, dan setiap widget Material yang
+      // membutuhkannya (AppBar, Scaffold drawer, date picker) akan gagal
+      // render. Bawaan Flutter hanya mendukung bahasa Inggris.
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       builder: (context, child) {
         // Saat device_preview aktif, MediaQuery yang benar adalah yang
         // disuntikkan appBuilder (ukuran HP simulasi), bukan ukuran browser.
