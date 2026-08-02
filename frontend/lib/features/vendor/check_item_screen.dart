@@ -9,7 +9,6 @@ import '../../core/theme/breakpoints.dart';
 import '../../core/utils/currency_formatter.dart';
 import '../../models/enums.dart';
 import '../../models/recommendation.dart';
-import '../../state/recommend_providers.dart';
 import '../../state/session_providers.dart';
 import '../../widgets/rupiah_field.dart';
 import '../../widgets/sticky_bottom_bar.dart';
@@ -64,13 +63,22 @@ class _CheckItemScreenState extends ConsumerState<CheckItemScreen> {
         _shelfLifeController.text = prefill.totalShelfLife.toString();
         _shelfLifeAuto = false;
       }
-    } else {
-      final shop = ref.read(sessionProvider)?.shop;
-      if (shop != null) {
-        // shop_name terisi dari profil - disimpan tersembunyi, tidak
-        // perlu field terpisah karena tidak ditampilkan ke vendor.
-      }
     }
+    // shop_name tidak punya field sendiri: diambil dari profil saat
+    // draft dibangun (_buildDraft), karena tidak ditampilkan ke vendor.
+  }
+
+  @override
+  void dispose() {
+    _freeTextController.dispose();
+    _itemNameController.dispose();
+    _stockController.dispose();
+    _daysController.dispose();
+    _priceController.dispose();
+    _costController.dispose();
+    _dailySalesController.dispose();
+    _shelfLifeController.dispose();
+    super.dispose();
   }
 
   void _applyCategoryDefault(ItemCategory c) {
@@ -112,8 +120,13 @@ class _CheckItemScreenState extends ConsumerState<CheckItemScreen> {
   }
 
   Future<void> _submitAndGoToProcessing() async {
+    // State "Dikirim" (§V-02): tombol jadi loading dan form dikunci
+    // supaya vendor tidak mengubah data yang sedang diproses.
+    setState(() => _submitted = true);
     // Alur nyata: V-02 -> V-04 (tampilkan animasi proses) -> hasil.
-    context.push(RoutePaths.vendorProcessing, extra: _buildDraft());
+    await context.push(RoutePaths.vendorProcessing, extra: _buildDraft());
+    // Vendor bisa kembali ke sini lewat "Ubah Input" — buka kuncinya lagi.
+    if (mounted) setState(() => _submitted = false);
   }
 
   @override
@@ -128,15 +141,19 @@ class _CheckItemScreenState extends ConsumerState<CheckItemScreen> {
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xl, vertical: AppSpacing.md),
             child: _ModeToggle(
               isFreeText: _freeTextMode,
-              onChanged: (v) => setState(() => _freeTextMode = v),
+              onChanged: _submitted ? null : (v) => setState(() => _freeTextMode = v),
             ),
           ),
           Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.xl, 0, AppSpacing.xl, AppSpacing.xxxl,
+            // Form dikunci selama pengiriman, bukan sekadar tombolnya.
+            child: AbsorbPointer(
+              absorbing: _submitted,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.xl, 0, AppSpacing.xl, AppSpacing.xxxl,
+                ),
+                child: _freeTextMode ? _freeTextForm() : _structuredForm(isTablet),
               ),
-              child: _freeTextMode ? _freeTextForm() : _structuredForm(isTablet),
             ),
           ),
           StickyBottomBar(
@@ -144,7 +161,16 @@ class _CheckItemScreenState extends ConsumerState<CheckItemScreen> {
               width: double.infinity,
               child: ElevatedButton(
                 onPressed: _isFormValid && !_submitted ? _submitAndGoToProcessing : null,
-                child: const Text('Dapatkan Rekomendasi'),
+                child: _submitted
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Text('Dapatkan Rekomendasi'),
               ),
             ),
           ),
@@ -202,8 +228,8 @@ class _CheckItemScreenState extends ConsumerState<CheckItemScreen> {
     );
 
     final portionNote = _category?.needsPortionNote == true
-        ? Padding(
-            padding: const EdgeInsets.only(top: AppSpacing.xs),
+        ? const Padding(
+            padding: EdgeInsets.only(top: AppSpacing.xs),
             child: Text(
               'Hitung dalam porsi jadi, bukan bahan mentah. Contoh: 2 liter susu ≈ 20 gelas latte.',
               style: AppTypography.caption,
@@ -231,14 +257,14 @@ class _CheckItemScreenState extends ConsumerState<CheckItemScreen> {
       onChanged: (_) => setState(() {}),
     );
 
-    final costField = Tooltip(
-      message: 'Berapa modal kamu per satu barang ini?',
-      child: RupiahField(
-        controller: _costController,
-        label: 'Harga modal',
-        helperText: 'Berapa modal kamu per satu barang ini?',
-        onChanged: (_) => setState(() {}),
-      ),
+    // Penjelas ditulis sebagai helperText yang selalu terlihat, bukan
+    // Tooltip — di ponsel tidak ada hover, dan §V-02 menyebut vendor
+    // sering bingung antara modal per batch dan per unit.
+    final costField = RupiahField(
+      controller: _costController,
+      label: 'Harga modal',
+      helperText: 'Berapa modal kamu per satu barang ini?',
+      onChanged: (_) => setState(() {}),
     );
 
     final dailySalesField = TextField(
@@ -321,26 +347,35 @@ class _CheckItemScreenState extends ConsumerState<CheckItemScreen> {
 class _ModeToggle extends StatelessWidget {
   const _ModeToggle({required this.isFreeText, required this.onChanged});
   final bool isFreeText;
-  final ValueChanged<bool> onChanged;
+
+  /// null berarti toggle terkunci (form sedang dikirim).
+  final ValueChanged<bool>? onChanged;
 
   @override
   Widget build(BuildContext context) {
     Widget seg(String label, bool valueForThis) {
       final active = isFreeText == valueForThis;
       return Expanded(
-        child: GestureDetector(
-          onTap: () => onChanged(valueForThis),
-          child: Container(
-            height: AppSpacing.minTouchTarget,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: active ? AppColors.primary : Colors.transparent,
-              borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-            ),
-            child: Text(
-              label,
-              style: AppTypography.bodyStrong.copyWith(
-                color: active ? Colors.white : AppColors.textSecondary,
+        child: Semantics(
+          selected: active,
+          button: true,
+          child: InkWell(
+            onTap: onChanged == null ? null : () => onChanged!(valueForThis),
+            borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              curve: Curves.easeOut,
+              height: AppSpacing.minTouchTarget,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: active ? AppColors.primary : Colors.transparent,
+                borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+              ),
+              child: Text(
+                label,
+                style: AppTypography.bodyStrong.copyWith(
+                  color: active ? Colors.white : AppColors.textSecondary,
+                ),
               ),
             ),
           ),
