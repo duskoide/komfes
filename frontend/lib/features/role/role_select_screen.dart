@@ -21,6 +21,7 @@ class RoleSelectScreen extends ConsumerWidget {
       title: 'Saya punya usaha makanan',
       description: 'Dapat rekomendasi harga diskon dari AI',
       buttonLabel: 'Lanjut sebagai Vendor',
+      emphasized: true,
       onTap: () {
         ref.read(activeRoleProvider.notifier).state = AppRole.vendor;
         context.push(RoutePaths.phone, extra: {'context': 'vendor'});
@@ -47,7 +48,7 @@ class RoleSelectScreen extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: AppSpacing.lg),
-              Text('Kamu siapa?', style: AppTypography.h1),
+              const Text('Kamu siapa?', style: AppTypography.h1),
               const SizedBox(height: AppSpacing.sm),
               Text(
                 'Ini menentukan tampilan app untukmu.',
@@ -55,25 +56,32 @@ class RoleSelectScreen extends ConsumerWidget {
               ),
               const SizedBox(height: AppSpacing.xxl),
               Expanded(
-                child: isTablet
-                    ? Row(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Expanded(child: vendorCard),
-                          const SizedBox(width: AppSpacing.lg),
-                          Expanded(child: consumerCard),
-                        ],
-                      )
-                    : Column(
-                        children: [
-                          Expanded(child: vendorCard),
-                          const SizedBox(height: AppSpacing.lg),
-                          Expanded(child: consumerCard),
-                        ],
-                      ),
+                child: SingleChildScrollView(
+                  child: isTablet
+                      // Tablet: berdampingan, tinggi disamakan (§S-03).
+                      ? IntrinsicHeight(
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Expanded(child: vendorCard),
+                              const SizedBox(width: AppSpacing.lg),
+                              Expanded(child: consumerCard),
+                            ],
+                          ),
+                        )
+                      // Ponsel: tumpuk vertikal dengan tinggi mengikuti isi,
+                      // bukan Expanded — supaya tidak melar di layar tinggi.
+                      : Column(
+                          children: [
+                            vendorCard,
+                            const SizedBox(height: AppSpacing.lg),
+                            consumerCard,
+                          ],
+                        ),
+                ),
               ),
               const SizedBox(height: AppSpacing.lg),
-              Center(
+              const Center(
                 child: Text(
                   'Bisa diubah nanti di Profil.',
                   style: AppTypography.caption,
@@ -94,6 +102,7 @@ class _RoleCard extends StatelessWidget {
     required this.description,
     required this.buttonLabel,
     required this.onTap,
+    this.emphasized = false,
   });
 
   final IconData icon;
@@ -102,42 +111,83 @@ class _RoleCard extends StatelessWidget {
   final String buttonLabel;
   final VoidCallback onTap;
 
+  /// Jalur vendor adalah tujuan utama layar ini, jadi kartunya diberi
+  /// bobot visual lebih — bukan sekadar dua pilihan yang identik.
+  final bool emphasized;
+
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
-      onTap: onTap,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.all(AppSpacing.xl),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
+    return Semantics(
+      button: true,
+      label: '$title. $description',
+      child: Material(
+        color: emphasized ? AppColors.primaryLight : AppColors.surface,
+        borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
+        child: InkWell(
           borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
-          border: Border.all(color: AppColors.border),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 64,
-              height: 64,
-              decoration: const BoxDecoration(color: AppColors.primaryLight, shape: BoxShape.circle),
-              child: Icon(icon, size: 30, color: AppColors.primary),
+          onTap: onTap,
+          child: Ink(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
+              border: Border.all(
+                color: emphasized ? AppColors.primary : AppColors.border,
+                width: emphasized ? 1.6 : 1,
+              ),
             ),
-            const SizedBox(height: AppSpacing.lg),
-            Text(title, style: AppTypography.h2, textAlign: TextAlign.center),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              description,
-              style: AppTypography.body.copyWith(color: AppColors.textSecondary),
-              textAlign: TextAlign.center,
+            child: Padding(
+              padding: const EdgeInsets.all(AppSpacing.xl),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      color: emphasized ? AppColors.surface : AppColors.primaryLight,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(icon, size: 30, color: AppColors.primary),
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                  Text(title, style: AppTypography.h2, textAlign: TextAlign.center),
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    description,
+                    style: AppTypography.body.copyWith(color: AppColors.textSecondary),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                  // Penanda aksi, bukan tombol terpisah: seluruh kartu sudah
+                  // menjadi target tekan, jadi ini dikecualikan dari semantik
+                  // dan dari hit-test agar tidak terbaca/tertekan dua kali.
+                  ExcludeSemantics(
+                    child: IgnorePointer(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              buttonLabel,
+                              textAlign: TextAlign.center,
+                              style: AppTypography.button.copyWith(
+                                color: AppColors.primary,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: AppSpacing.xs),
+                          const Icon(
+                            Icons.arrow_forward_rounded,
+                            size: 18,
+                            color: AppColors.primary,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: AppSpacing.lg),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton(onPressed: onTap, child: Text(buttonLabel)),
-            ),
-          ],
+          ),
         ),
       ),
     );
