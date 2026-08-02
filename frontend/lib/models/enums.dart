@@ -1,18 +1,32 @@
+/// Kategori barang.
+///
+/// [apiValue] mengikuti kontrak `POST /api/recommend` (SRS Penyisihan §3.3)
+/// yang memakai istilah Inggris, sedangkan [label] adalah teks yang
+/// ditampilkan ke vendor. Keduanya harus dipisah — kalau label Indonesia
+/// ikut terkirim ke backend, kategori tidak akan dikenali.
 enum ItemCategory {
-  bakery('Bakery', defaultShelfLifeDays: 4),
-  makananSiapSaji('Makanan Siap Saji', defaultShelfLifeDays: 1),
-  susuOlahan('Susu & Olahan', defaultShelfLifeDays: 5),
-  minuman('Minuman', defaultShelfLifeDays: 3),
-  sayurBuah('Sayur & Buah', defaultShelfLifeDays: 3),
-  snack('Snack', defaultShelfLifeDays: 14),
-  kalengan('Kalengan', defaultShelfLifeDays: 90),
-  lainnya('Lainnya', defaultShelfLifeDays: 7);
+  bakery('Bakery', 'Bakery', defaultShelfLifeDays: 4),
+  makananSiapSaji('Prepared Food', 'Makanan Siap Saji', defaultShelfLifeDays: 3),
+  susuOlahan('Dairy', 'Susu & Olahan', defaultShelfLifeDays: 14),
+  minuman('Beverage', 'Minuman', defaultShelfLifeDays: 5),
+  sayurBuah('Produce', 'Sayur & Buah', defaultShelfLifeDays: 7),
+  snack('Snack', 'Snack', defaultShelfLifeDays: 90),
+  kalengan('Canned', 'Kalengan', defaultShelfLifeDays: 365),
+  lainnya('Other', 'Lainnya', defaultShelfLifeDays: 30);
 
-  const ItemCategory(this.apiValue, {required this.defaultShelfLifeDays});
+  const ItemCategory(
+    this.apiValue,
+    this.label, {
+    required this.defaultShelfLifeDays,
+  });
 
+  /// Nilai yang dikirim/diterima backend. Jangan tampilkan ke user.
   final String apiValue;
 
-  /// Perkiraan masa simpan (hari) (hanya default, bisa diubah)
+  /// Teks Bahasa Indonesia untuk UI. Jangan kirim ke backend.
+  final String label;
+
+  /// Default umur simpan per kategori, mengikuti tabel SRS Penyisihan §3.3.
   final int defaultShelfLifeDays;
 
   /// Kategori dengan catatan "hitung dalam porsi jadi"

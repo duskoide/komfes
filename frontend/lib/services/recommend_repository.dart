@@ -153,7 +153,9 @@ class MockRecommendRepository implements RecommendRepository {
       category = ItemCategory.bakery;
     } else {
       for (final c in ItemCategory.values) {
-        if (lower.contains(c.apiValue.toLowerCase().split(' ').first)) {
+        // Dicocokkan dengan label Indonesia — teks bebas vendor tidak
+        // pernah memakai istilah Inggris dari kontrak API.
+        if (lower.contains(c.label.toLowerCase().split(' ').first)) {
           category = c;
           break;
         }

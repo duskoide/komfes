@@ -196,7 +196,7 @@ class _CheckItemScreenState extends ConsumerState<CheckItemScreen> {
       initialValue: _category,
       decoration: const InputDecoration(labelText: 'Kategori'),
       items: ItemCategory.values
-          .map((c) => DropdownMenuItem(value: c, child: Text(c.apiValue)))
+          .map((c) => DropdownMenuItem(value: c, child: Text(c.label)))
           .toList(),
       onChanged: (c) => c != null ? _applyCategoryDefault(c) : null,
     );

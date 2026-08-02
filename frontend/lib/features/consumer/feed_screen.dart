@@ -44,7 +44,7 @@ class ConsumerFeedScreen extends ConsumerWidget {
                   Padding(
                     padding: const EdgeInsets.only(right: AppSpacing.sm),
                     child: ChoiceChip(
-                      label: Text(c.apiValue),
+                      label: Text(c.label),
                       selected: categoryFilter == c,
                       onSelected: (_) => ref.read(_categoryFilterProvider.notifier).state = c,
                     ),

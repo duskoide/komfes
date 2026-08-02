@@ -110,7 +110,7 @@ class _ConfirmDataScreenState extends ConsumerState<ConfirmDataScreen> {
                     initialValue: _category,
                     decoration: const InputDecoration(labelText: 'Kategori'),
                     items: ItemCategory.values
-                        .map((c) => DropdownMenuItem(value: c, child: Text(c.apiValue)))
+                        .map((c) => DropdownMenuItem(value: c, child: Text(c.label)))
                         .toList(),
                     onChanged: (c) => setState(() => _category = c),
                   )),
