@@ -124,30 +124,45 @@ class _RecommendationResultScreenState extends ConsumerState<RecommendationResul
       cost: input.cost,
     );
 
+    // Urutan visual mengikuti §V-05: harga rekomendasi paling besar,
+    // diskon jadi badge, harga asli dicoret dan lebih kecil.
     final numbers = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('${rec.discountPercent}% off', style: AppTypography.displayNumber),
-        const SizedBox(height: 4),
         Text(
-          '${CurrencyFormatter.format(rec.recommendedPrice)} dari ${CurrencyFormatter.format(input.originalPrice!)}',
-          style: AppTypography.body.copyWith(color: AppColors.textSecondary),
+          CurrencyFormatter.format(rec.recommendedPrice),
+          style: AppTypography.displayNumber,
         ),
-        const SizedBox(height: AppSpacing.md),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
-          decoration: BoxDecoration(
-            color: AppColors.surfaceAlt,
-            borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-          ),
-          child: Row(
-            children: [
-              const Icon(Icons.schedule, size: 16, color: AppColors.textSecondary),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(child: Text(rec.timing, style: AppTypography.bodyStrong)),
-            ],
-          ),
+        const SizedBox(height: AppSpacing.sm),
+        Wrap(
+          crossAxisAlignment: WrapCrossAlignment.center,
+          spacing: AppSpacing.sm,
+          runSpacing: AppSpacing.xs,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.md,
+                vertical: AppSpacing.xs,
+              ),
+              decoration: BoxDecoration(
+                color: AppColors.primaryLight,
+                borderRadius: BorderRadius.circular(AppSpacing.radiusPill),
+              ),
+              child: Text(
+                'Diskon ${rec.discountPercent}%',
+                style: AppTypography.bodyStrong.copyWith(color: AppColors.primary),
+              ),
+            ),
+            Text('·', style: AppTypography.body.copyWith(color: AppColors.textDisabled)),
+            const Text('harga asli', style: AppTypography.caption),
+            Text(
+              CurrencyFormatter.format(input.originalPrice!),
+              style: AppTypography.strikethrough,
+            ),
+          ],
         ),
+        const SizedBox(height: AppSpacing.lg),
+        _TimingChip(timing: rec.timing, daysRemaining: input.daysRemaining ?? 0),
       ],
     );
 
@@ -201,7 +216,7 @@ class _RecommendationResultScreenState extends ConsumerState<RecommendationResul
     final editableSection = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Sesuaikan kalau perlu', style: AppTypography.h3),
+        const Text('Sesuaikan kalau perlu', style: AppTypography.h3),
         const SizedBox(height: AppSpacing.sm),
         RupiahField(
           controller: _priceController,
@@ -222,7 +237,7 @@ class _RecommendationResultScreenState extends ConsumerState<RecommendationResul
     final previewSection = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Pratinjau untuk pembeli', style: AppTypography.h3),
+        const Text('Pratinjau untuk pembeli', style: AppTypography.h3),
         const SizedBox(height: AppSpacing.sm),
         DealCard(deal: previewDeal, audience: DealCardAudience.consumer, density: DealCardDensity.lengkap),
       ],
@@ -273,6 +288,29 @@ class _RecommendationResultScreenState extends ConsumerState<RecommendationResul
               ),
       ),
       bottomNavigationBar: StickyBottomBar(
+        secondaryChild: Row(
+          children: [
+            Expanded(
+              child: TextButton(
+                onPressed: () {
+                  context.pushReplacement(RoutePaths.vendorCheckItem, extra: input);
+                },
+                child: const Text('Ubah Input'),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              // §3.2 SRS Penyisihan: hasil harus punya aksi "Hitung Lagi"
+              // — mengulang dengan input yang sama, tanpa mengetik ulang.
+              child: TextButton(
+                onPressed: () {
+                  context.pushReplacement(RoutePaths.vendorProcessing, extra: input);
+                },
+                child: const Text('Hitung Lagi'),
+              ),
+            ),
+          ],
+        ),
         child: SizedBox(
           width: double.infinity,
           child: ElevatedButton(
@@ -288,12 +326,50 @@ class _RecommendationResultScreenState extends ConsumerState<RecommendationResul
                 : const Text('Publikasikan Sekarang'),
           ),
         ),
-        secondaryChild: TextButton(
-          onPressed: () {
-            context.pushReplacement(RoutePaths.vendorCheckItem, extra: input);
-          },
-          child: const Text('Ubah Input'),
-        ),
+      ),
+    );
+  }
+}
+
+/// Chip "waktu mulai" dengan warna sistem urgensi (§2.4 dan §V-05 poin 2).
+///
+/// Warna hanya soal penyajian — teksnya tetap berasal dari server, dan
+/// selalu ada ikon + kata, tidak pernah warna saja (§2.5).
+class _TimingChip extends StatelessWidget {
+  const _TimingChip({required this.timing, required this.daysRemaining});
+
+  final String timing;
+  final int daysRemaining;
+
+  @override
+  Widget build(BuildContext context) {
+    final (fg, bg, icon) = switch (daysRemaining) {
+      <= 1 => (AppColors.kritis, AppColors.kritisBg, Icons.priority_high_rounded),
+      <= 3 => (AppColors.perhatian, AppColors.perhatianBg, Icons.schedule_rounded),
+      _ => (AppColors.aman, AppColors.amanBg, Icons.event_available_rounded),
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: AppSpacing.md,
+        vertical: AppSpacing.sm,
+      ),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18, color: fg),
+          const SizedBox(width: AppSpacing.sm),
+          Flexible(
+            child: Text(
+              timing,
+              style: AppTypography.bodyStrong.copyWith(color: fg),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -310,7 +386,7 @@ class _PublishConfirmSheet extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('Publikasikan deal ini?', style: AppTypography.h2),
+        const Text('Publikasikan deal ini?', style: AppTypography.h2),
         const SizedBox(height: AppSpacing.sm),
         Text(
           'Deal akan langsung tayang dan bisa diklaim pembeli. '
