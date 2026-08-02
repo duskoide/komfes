@@ -69,7 +69,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                         children: [
                           Expanded(child: _Illustration(icon: slide.icon)),
                           const SizedBox(width: AppSpacing.xxl),
-                          Expanded(child: _SlideText(slide: slide)),
+                          Expanded(
+                            child: _SlideText(slide: slide, centered: false),
+                          ),
                         ],
                       ),
                     );
@@ -79,30 +81,37 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        _Illustration(icon: slide.icon),
+                        Flexible(child: _Illustration(icon: slide.icon)),
                         const SizedBox(height: AppSpacing.xxl),
-                        _SlideText(slide: slide),
+                        _SlideText(slide: slide, centered: true),
                       ],
                     ),
                   );
                 },
               ),
             ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(_slides.length, (i) {
-                final active = i == _page;
-                return AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  margin: const EdgeInsets.symmetric(horizontal: 4),
-                  width: active ? 22 : 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: active ? AppColors.primary : AppColors.border,
-                    borderRadius: BorderRadius.circular(AppSpacing.radiusPill),
-                  ),
-                );
-              }),
+            Semantics(
+              label: 'Slide ${_page + 1} dari ${_slides.length}',
+              child: Padding(
+                padding: const EdgeInsets.only(top: AppSpacing.xl),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(_slides.length, (i) {
+                    final active = i == _page;
+                    return AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      curve: Curves.easeOut,
+                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                      width: active ? 24 : 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: active ? AppColors.primary : AppColors.border,
+                        borderRadius: BorderRadius.circular(AppSpacing.radiusPill),
+                      ),
+                    );
+                  }),
+                ),
+              ),
             ),
             Padding(
               padding: const EdgeInsets.all(AppSpacing.xl),
@@ -130,37 +139,76 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   }
 }
 
+/// Dua lingkaran sepusat, tanpa shadow bertumpuk — sesuai batasan
+/// perangkat low-end di panduan (§2.5).
 class _Illustration extends StatelessWidget {
   const _Illustration({required this.icon});
   final IconData icon;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 200,
-      decoration: BoxDecoration(
-        color: AppColors.primaryLight,
-        borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
+    return Center(
+      child: AspectRatio(
+        aspectRatio: 1,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final outer = constraints.biggest.shortestSide.clamp(160.0, 260.0);
+            return Center(
+              child: Container(
+                width: outer,
+                height: outer,
+                decoration: const BoxDecoration(
+                  color: AppColors.primaryLight,
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: Container(
+                    width: outer * 0.62,
+                    height: outer * 0.62,
+                    decoration: const BoxDecoration(
+                      color: AppColors.surface,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      icon,
+                      size: outer * 0.3,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
       ),
-      child: Icon(icon, size: 72, color: AppColors.primary),
     );
   }
 }
 
 class _SlideText extends StatelessWidget {
-  const _SlideText({required this.slide});
+  const _SlideText({required this.slide, required this.centered});
   final _Slide slide;
+  final bool centered;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(slide.title, style: AppTypography.h1),
-        const SizedBox(height: AppSpacing.sm),
-        Text(slide.body, style: AppTypography.body.copyWith(color: AppColors.textSecondary)),
-      ],
+    final align = centered ? TextAlign.center : TextAlign.start;
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: AppSpacing.paragraphMaxWidth),
+      child: Column(
+        crossAxisAlignment:
+            centered ? CrossAxisAlignment.center : CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(slide.title, style: AppTypography.h1, textAlign: align),
+          const SizedBox(height: AppSpacing.md),
+          Text(
+            slide.body,
+            textAlign: align,
+            style: AppTypography.body.copyWith(color: AppColors.textSecondary),
+          ),
+        ],
+      ),
     );
   }
 }
