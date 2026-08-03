@@ -32,6 +32,7 @@ class RupiahField extends StatelessWidget {
     this.helperText,
     this.errorText,
     this.autofocus = false,
+    this.focusNode,
     this.onChanged,
   });
 
@@ -41,6 +42,7 @@ class RupiahField extends StatelessWidget {
   final String? helperText;
   final String? errorText;
   final bool autofocus;
+  final FocusNode? focusNode;
   final ValueChanged<int>? onChanged;
 
   @override
@@ -48,6 +50,7 @@ class RupiahField extends StatelessWidget {
     return TextField(
       controller: controller,
       autofocus: autofocus,
+      focusNode: focusNode,
       keyboardType: TextInputType.number,
       inputFormatters: [_RupiahInputFormatter()],
       onChanged: (v) => onChanged?.call(CurrencyFormatter.parseDigits(v)),
