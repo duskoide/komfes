@@ -6,18 +6,22 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../state/recommend_providers.dart';
+import '../../widgets/item_summary.dart';
 
+/// V-06 — tidak melakukan apa-apa adalah jawaban yang benar. Sengaja tanpa
+/// warna/ikon error: ini kabar baik, vendor menghemat margin (§V-06).
 class NoActionScreen extends ConsumerWidget {
   const NoActionScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final result = ref.watch(recommendFlowProvider).result!;
+    final flow = ref.watch(recommendFlowProvider);
+    final result = flow.result!;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Cek Barang')),
       body: Center(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(AppSpacing.xxl),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -25,49 +29,72 @@ class NoActionScreen extends ConsumerWidget {
               Container(
                 width: 88,
                 height: 88,
-                decoration: const BoxDecoration(color: AppColors.amanBg, shape: BoxShape.circle),
+                decoration: const BoxDecoration(
+                  color: AppColors.amanBg,
+                  shape: BoxShape.circle,
+                ),
                 child: const Icon(Icons.check_circle, size: 44, color: AppColors.aman),
               ),
               const SizedBox(height: AppSpacing.xl),
-              Text('Barang ini masih aman', style: AppTypography.h1, textAlign: TextAlign.center),
+              const Text(
+                'Belum perlu diskon',
+                style: AppTypography.h1,
+                textAlign: TextAlign.center,
+              ),
               const SizedBox(height: AppSpacing.sm),
               Text(
-                result.message ?? 'Belum perlu diskon sekarang.',
+                result.message ??
+                    'Barang ini kemungkinan terjual normal sebelum kadaluarsa.',
                 style: AppTypography.body.copyWith(color: AppColors.textSecondary),
                 textAlign: TextAlign.center,
               ),
               if (result.reassessInDays != null) ...[
                 const SizedBox(height: AppSpacing.lg),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md, vertical: AppSpacing.sm),
-                  decoration: BoxDecoration(
-                    color: AppColors.surfaceAlt,
-                    borderRadius: BorderRadius.circular(AppSpacing.radiusPill),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.lg,
+                    vertical: AppSpacing.md,
                   ),
-                  child: Text(
-                    'Cek lagi dalam ${result.reassessInDays} hari',
-                    style: AppTypography.label,
+                  decoration: BoxDecoration(
+                    color: AppColors.amanBg,
+                    borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.event_repeat, size: 18, color: AppColors.aman),
+                      const SizedBox(width: AppSpacing.sm),
+                      Text(
+                        'Cek lagi dalam ${result.reassessInDays} hari',
+                        style: AppTypography.bodyStrong.copyWith(color: AppColors.aman),
+                      ),
+                    ],
                   ),
                 ),
               ],
+              const SizedBox(height: AppSpacing.lg),
+              ItemSummary(draft: flow.draft),
               const SizedBox(height: AppSpacing.xxl),
               SizedBox(
                 width: double.infinity,
+                // §V-06: aksi primer adalah "Cek Barang Lain". Sengaja tidak
+                // membawa draft lama — "barang lain" berarti barang berbeda,
+                // jadi formnya harus kosong.
                 child: ElevatedButton(
                   onPressed: () {
                     ref.read(recommendFlowProvider.notifier).reset();
-                    context.go(RoutePaths.vendorHome);
+                    context.pushReplacement(RoutePaths.vendorCheckItem);
                   },
-                  child: const Text('Kembali ke Beranda'),
+                  child: const Text('Cek Barang Lain'),
                 ),
               ),
               const SizedBox(height: AppSpacing.sm),
               TextButton(
                 onPressed: () {
-                  final draft = ref.read(recommendFlowProvider).draft;
-                  context.pushReplacement(RoutePaths.vendorCheckItem, extra: draft);
+                  ref.read(recommendFlowProvider.notifier).reset();
+                  context.go(RoutePaths.vendorHome);
                 },
-                child: const Text('Cek Barang Lain'),
+                child: const Text('Kembali ke Beranda'),
               ),
             ],
           ),
