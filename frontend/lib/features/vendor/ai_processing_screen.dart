@@ -10,6 +10,7 @@ import '../../core/theme/app_typography.dart';
 import '../../models/enums.dart';
 import '../../models/recommendation.dart';
 import '../../state/recommend_providers.dart';
+import '../../widgets/item_summary.dart';
 
 class AiProcessingScreen extends ConsumerStatefulWidget {
   const AiProcessingScreen({super.key, required this.draft});
@@ -144,7 +145,7 @@ class _AiProcessingScreenState extends ConsumerState<AiProcessingScreen> {
         const SizedBox(height: AppSpacing.sm),
         const Text('Biasanya kurang dari 5 detik.', style: AppTypography.caption),
         const SizedBox(height: AppSpacing.xl),
-        _ItemSummary(draft: widget.draft),
+        ItemSummary(draft: widget.draft),
         // Tombol batal sengaja disembunyikan sebelum detik ke-15 supaya
         // vendor tidak membatalkan proses yang sebenarnya normal (§V-04).
         if (_canCancel) ...[
@@ -192,49 +193,3 @@ class _AiProcessingScreenState extends ConsumerState<AiProcessingScreen> {
   }
 }
 
-/// Ringkasan barang yang sedang diproses (§V-04) — supaya vendor yakin
-/// yang dihitung adalah barang yang benar. Bagian yang belum diketahui
-/// (misal input teks bebas yang belum diparsing) tidak ditampilkan.
-class _ItemSummary extends StatelessWidget {
-  const _ItemSummary({required this.draft});
-
-  final ItemInputDraft draft;
-
-  @override
-  Widget build(BuildContext context) {
-    final parts = <String>[
-      if (draft.stock != null) '${draft.stock} pcs',
-      if (draft.daysRemaining != null)
-        switch (draft.daysRemaining!) {
-          0 => 'kadaluarsa hari ini',
-          1 => 'sisa 1 hari',
-          final d => 'sisa $d hari',
-        },
-    ];
-
-    final name = draft.itemName?.trim();
-    if ((name == null || name.isEmpty) && parts.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: AppSpacing.lg,
-        vertical: AppSpacing.md,
-      ),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceAlt,
-        borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (name != null && name.isNotEmpty)
-            Text(name, style: AppTypography.bodyStrong, textAlign: TextAlign.center),
-          if (parts.isNotEmpty)
-            Text(parts.join(' · '), style: AppTypography.caption, textAlign: TextAlign.center),
-        ],
-      ),
-    );
-  }
-}
