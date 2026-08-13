@@ -402,6 +402,7 @@ publish a price below the margin floor: rejected by the server
 | [`UIUX_HANDOVER.md`](UIUX_HANDOVER.md) | **Per-screen requirements for the UI/UX team** — mobile app (phone + tablet), 24 screens, states, copy deck |
 | [`docs/HargaTurun_Project_Spec.md`](docs/HargaTurun_Project_Spec.md) | Problem, personas, the full oracle formula, model choice, business model, risks |
 | [`docs/HargaTurun_LLM_Server_Setup.md`](docs/HargaTurun_LLM_Server_Setup.md) | Standalone RTX 4060 CUDA model-server setup, smoke test, tuning, and troubleshooting |
+| [`docs/HargaTurun_Implementation_Handoff.md`](docs/HargaTurun_Implementation_Handoff.md) | **Living implementation status** — what's built, findings, and what's next |
 | [`docs/HargaTurun_Penyisihan_SRS.md`](docs/HargaTurun_Penyisihan_SRS.md) | **Authoritative** preliminary scope, API contract, acceptance criteria |
 | [`docs/HargaTurun_Final_SRS.md`](docs/HargaTurun_Final_SRS.md) | Final-round marketplace loop, data model, phased cut line |
 | [`docs/HargaTurun_FineTuning_Plan.md`](docs/HargaTurun_FineTuning_Plan.md) | BF16 LoRA runbook — task contracts, leakage-safe data, evaluation, GGUF export |
