@@ -161,24 +161,39 @@ class DealCard extends StatelessWidget {
 
   Widget _metaRow() {
     if (audience == DealCardAudience.vendor) {
-      return Row(
+      return Wrap(
+        spacing: AppSpacing.md,
+        runSpacing: AppSpacing.xs,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          Icon(Icons.inventory_2_outlined, size: 16, color: AppColors.textSecondary),
-          const SizedBox(width: 4),
-          Text(
+          _metaItem(
+            Icons.inventory_2_outlined,
             '${deal.remainingStock} dari ${deal.initialStock}',
             style: AppTypography.bodyStrong,
           ),
-          const SizedBox(width: AppSpacing.md),
-          if (deal.status == DealStatus.active) StatusChip.deal(DealStatusChipKind.aktif),
+          _metaItem(Icons.event_outlined, 'Exp ${deal.expiryLabel}'),
+          if (deal.status == DealStatus.active) const StatusChip.deal(DealStatusChipKind.aktif),
         ],
       );
     }
-    return Row(
+    return Wrap(
+      spacing: AppSpacing.md,
+      runSpacing: AppSpacing.xs,
+      crossAxisAlignment: WrapCrossAlignment.center,
       children: [
-        Icon(Icons.inventory_2_outlined, size: 16, color: AppColors.textSecondary),
+        _metaItem(Icons.inventory_2_outlined, 'Stok ${deal.remainingStock}'),
+        _metaItem(Icons.event_outlined, 'Exp ${deal.expiryLabel}'),
+      ],
+    );
+  }
+
+  Widget _metaItem(IconData icon, String label, {TextStyle? style}) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16, color: AppColors.textSecondary),
         const SizedBox(width: 4),
-        Text('Stok ${deal.remainingStock}', style: AppTypography.caption),
+        Text(label, style: style ?? AppTypography.caption),
       ],
     );
   }
