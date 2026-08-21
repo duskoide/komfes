@@ -1,20 +1,14 @@
 [project]
 name = "hargaturun"
 version = "0.1.0"
-description = "HargaTurun backend — deterministic pricing oracle + FastAPI recommendation API"
+description = "HargaTurun deterministic pricing oracle and model contracts"
 readme = "README.md"
 requires-python = ">=3.11"
-# The pricing oracle (hargaturun.pricing) is intentionally pure-stdlib so it can
-# run in training data generation and in tests without installing anything.
-# The API layer adds these once it lands:
+# The deterministic core is deliberately dependency-free. The API layer is
+# developed separately and will declare its runtime dependencies on that branch.
 dependencies = []
 
 [project.optional-dependencies]
-api = [
-    "fastapi>=0.110",
-    "uvicorn[standard]>=0.29",
-    "httpx>=0.27",
-]
 dev = [
     "pytest>=8",
 ]

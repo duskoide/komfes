@@ -1,8 +1,8 @@
 # HargaTurun — Implementation Handoff
 
 > **Document type:** living implementation-status + handoff document
-> **Last updated:** 2026-08-13
-> **Branch:** `feat/pricing-engine` (pushed to `origin`, 4 commits ahead of `main`)
+> **Last updated:** 2026-08-17
+> **Branch:** `feat/pricing-engine` (pushed to `origin`; compare with `main` for the current commit count)
 > **Author of code so far:** `buahkol <illonanasywa710@gmail.com>`
 > **Purpose:** give anyone picking this up the full context — what the repo is,
 > what has been built and *why it behaves the way it does*, the constraints
@@ -16,14 +16,15 @@ change the demo)**, and **§7 (what's next)**.
 
 ## 1. Where the project stands in one paragraph
 
-Until now the repository was **specification only** — no code. This branch adds
-the first two engineering deliverables from the Fine-Tuning Plan's execution
-order (§9 of `HargaTurun_FineTuning_Plan.md`): the **deterministic pricing
-oracle** (`pricing.py`, every number in the system) and the **frozen model I/O
-contracts** (`schemas.py`, the parse/write tasks the training data and the API
-both agree on). Both are pure-stdlib and fully tested (40 tests, all green). The
-model itself, the FastAPI layer, the dataset generator, the gold test set, and
-the frontend are **not started yet** — see §7.
+At this branch's starting point the shared repository was **specification only**.
+This branch adds the first two engineering deliverables from the Fine-Tuning
+Plan's execution order (§9 of `HargaTurun_FineTuning_Plan.md`): the
+**deterministic pricing oracle** (`pricing.py`, every number in the system) and
+the **frozen model I/O contracts** (`schemas.py`, the parse/write tasks the
+training data and the API both agree on). Both are pure-stdlib and fully tested.
+The model itself, FastAPI layer, dataset generator, and gold test set are **not
+started on this branch** — see §7. A separate `frontend` branch contains the
+Flutter UI; it is not integrated with this deterministic core yet.
 
 ---
 
@@ -46,16 +47,16 @@ komfes/
 │   ├── AIC_Technical_Guide.md           # competition rules (technical)
 │   └── HargaTurun_Implementation_Handoff.md   # ← THIS FILE
 └── backend/                     # ← NEW, all code so far lives here
-    ├── pyproject.toml           # package metadata; FastAPI/pytest are OPTIONAL extras
+    ├── pyproject.toml           # dependency-free core package metadata
     ├── README.md                # how to run the backend tests
     ├── .gitignore               # python artifacts
     ├── hargaturun/
     │   ├── __init__.py
-    │   ├── pricing.py           # THE ORACLE — every number (407 LOC)
-    │   └── schemas.py           # frozen parse/write model contracts (278 LOC)
+    │   ├── pricing.py           # THE ORACLE — every number
+    │   └── schemas.py           # frozen parse/write model contracts
     └── tests/
-        ├── test_pricing.py      # 26 tests incl. 20k-iteration fuzz (255 LOC)
-        └── test_schemas.py      # 14 tests (142 LOC)
+        ├── test_pricing.py      # oracle regressions + 20k-iteration fuzz
+        └── test_schemas.py      # strict parse/write contract tests
 ```
 
 **Doc precedence rule (from README):** where the Project Spec and an SRS
@@ -66,7 +67,8 @@ the SRSs are what each round actually ships.
 
 ## 3. What has been built (this branch)
 
-Four small commits on `feat/pricing-engine`:
+Five small commits currently make up the committed branch history; the fixes
+listed in §5.5 are the next merge-preparation change:
 
 | Commit | What |
 |---|---|
@@ -74,6 +76,7 @@ Four small commits on `feat/pricing-engine`:
 | `0bca52f` | `pricing.py` — the deterministic oracle (Project Spec §9.5) |
 | `a7035d1` | 26 oracle tests incl. a 20k-iteration margin-floor fuzz |
 | `f436b68` | `schemas.py` — frozen parse/write model contracts (FT Plan §2) |
+| `862200e` | this living implementation handoff |
 
 ### 3.1 `hargaturun/pricing.py` — the oracle
 
@@ -113,17 +116,21 @@ the overlaps implicit):
 1. invalid economics / numbers (`price<=0`, `stock<=0`, `daily_sales<=0`,
    `cost>=price`) → `invalid_input`
 2. already expired (`days_remaining<=0`) → `invalid_input` (`expired=True`)
-3. **fire sale** (`0 < days_remaining < 1`) → aggressive recommendation at the
-   margin ceiling, timing `"HARI INI SAJA!"`, `is_fire_sale=True`
-4. **no action** (`pressure<=1.0 AND urgency<0.7`) → `no_action`
-5. **very low stock** (`stock<=2`) → discount capped at 15%
-6. normal formula
+3. **fire sale** (`0 < days_remaining < 1`); if no 5% margin-safe markdown fits,
+   return `invalid_input`, otherwise recommend at the margin ceiling
+4. **no action** (`pressure<=1.0 AND urgency<0.7`) → `no_action`, even when the
+   margin is too thin for a future markdown
+5. insufficient room for a needed 5% discount plus Rp500 margin → `invalid_input`
+6. **very low stock** (`stock<=2`) → discount capped at 15%
+7. normal formula
 
 **Hard guarantees (enforced by construction + asserted + fuzz-tested):**
 
-- `recommended_price >= cost + Rp500` — *always*, even in fire sales / thin
-  margins. This is the one promise the vendor relies on.
-- discount ∈ [0, 70], a multiple of 5.
+- `recommended_price >= cost + Rp500` for every recommendation; when the
+  minimum viable markdown cannot preserve this floor, the outcome is
+  `invalid_input` instead.
+- discount ∈ [5, 70], a multiple of 5, for every recommendation.
+- recommended price never exceeds the original price.
 - the *displayed* discount never exceeds the margin ceiling (see §5.3).
 - prices are multiples of Rp500 (Indonesian pricing convention), except the rare
   `cost + Rp500` floor value itself.
@@ -136,7 +143,7 @@ agree on the parse/write task shapes, so they can't drift.
 - **Field contracts:** `PARSE_REQUIRED_FIELDS` (8 fields; `shop_name` optional),
   numeric-field lists, allowed categories.
 - **Frozen system prompts:** `PARSE_SYSTEM_PROMPT` / `WRITE_SYSTEM_PROMPT`, each
-  with a version string (`parse-v1`, `write-v1`). Keep these stable — FT Plan
+  with a version string (`parse-v2`, `write-v2`). Keep these stable — FT Plan
   §4.1 records the prompt version with every eval run; changing a prompt
   invalidates prior results.
 - **`to_engine_result(result, unit)`** — the *single* adapter turning an
@@ -146,18 +153,17 @@ agree on the parse/write task shapes, so they can't drift.
   / `warning`).
 - **Stdlib validators** enforcing FT Plan §3.6 gates, reused by tests and (later)
   the dataset generator:
-  - `validate_parse_output` — rejects leaked recommendation fields, wrong
-    categories, unexpected keys, and (critically) a `needs_confirmation` that
-    contradicts the actual required-field gaps — the "false completion" shape
-    that FT Plan §4.2 calls safety-critical.
-  - `validate_write_output(obj, allowed_numbers)` — rejects any integer in the
-    prose that isn't present in the engine input (gate 6, "no fabricated
-    numbers"). Number extraction tolerates `Rp10.500` → `10500` and `30%` → `30`
-    and **fails closed** (over-collects rather than under-collects).
+  - `validate_parse_output` — enforces the exact JSON shape, field types and
+    numeric domains, leaked-field rejection, and exact consistency among null
+    required values, `missing_fields`, and `needs_confirmation`.
+  - `validate_write_output(obj, allowed_numbers, engine_status)` — enforces the
+    exact output shape, sentence counts, status-appropriate promo behavior, and
+    rejects numerical claims absent from the engine input. Number extraction
+    distinguishes decimal claims from Indonesian Rupiah thousands separators.
   - `allowed_numbers_for(normalized_input, engine_result)` — the legitimate
-    integer set for a write output.
+    numeric set for a write output.
 
-### 3.3 Tests — 40, all green, zero dependencies
+### 3.3 Tests — all green, zero runtime dependencies
 
 Because the code is pure-stdlib, the tests run with nothing installed:
 
@@ -169,8 +175,8 @@ python3 -m unittest discover -s tests -v      # NOTE: python3, not python
 Highlights worth knowing:
 
 - `TestInvariantsFuzz` runs **20,000 seeded random inputs** and asserts the
-  margin floor and discount bounds hold for every one. This is the proof behind
-  the "hard guarantees" above.
+  margin floor, true-markdown requirement, and discount bounds hold for every
+  accepted recommendation.
 - `TestCanonicalExample` pins the surprising-but-correct finding in §5.1.
 - `TestSurplusRecommendation` regression-locks a hand-derived example
   (Bakery, Rp20 000, cost 10 000, 30 units, 1 day, shelf 4, 5/day) → **45% off,
@@ -191,10 +197,9 @@ try to run or extend things:
 | **Internet: available** | `pypi.org` reachable. | Bootstrapping pip via `get-pip.py` is *possible*, just not yet done. |
 | **git identity was unset** | Set repo-locally to `buahkol <illonanasywa710@gmail.com>`. | Commits are authored as buahkol. **Team decision on record: no "Claude"/co-author trace in commits.** Keep it that way. |
 
-**Testing tooling:** `pytest` is not installed either; tests use stdlib
-`unittest`. `pyproject.toml` lists `pytest` and the FastAPI stack as *optional*
-extras for when a normal environment is available — they are collected by pytest
-too if you have it.
+**Testing tooling:** tests use stdlib `unittest`; `pytest` is an optional
+`dev` extra and collects the same suite when installed. FastAPI dependencies
+belong to the separate backend-integration branch.
 
 ---
 
@@ -253,18 +258,32 @@ during the API/frontend work:
    headline path nearly always detours to the confirmation form. → Frame the flow
    honestly as "first capture, then confirm", or lower the expectation.
 4. **Native-app vs web tension.** `UIUX_HANDOVER.md` is written as a native app
-   (SMS-OTP autofill, haptics, portrait-lock, `dp` units) while the deliverable
-   is `docker compose up` → a browser, with no desktop breakpoints. `flake.nix`
-   only provides Flutter, deepening the confusion. → Decide firmly: **PWA /
-   responsive web**, add a desktop breakpoint, drop native-only affordances. (If
-   Flutter is truly the target, the docker-compose-in-a-browser deliverable is at
-   risk.)
+   (SMS-OTP autofill, haptics, portrait-lock, `dp` units) while the original
+   penyisihan SRS expects `docker compose up` → a browser. The separate frontend
+   branch currently chooses Flutter. → Before integration, decide whether the
+   deliverable is Flutter web/PWA or a native app and align deployment and
+   breakpoint requirements accordingly.
 5. **OTP auth** has no backend contract and adds heavy infra, while the rules
    disqualify "complex authentication systems". → Drop auth from penyisihan
    (it's already out of scope) or stub it.
 6. **Minor:** `days_remaining` typed as int in some places, REAL/float in
    others; `422` is used both for `needs_confirmation` (a *normal* branch — a
    `200` + status discriminator is cleaner) and for `invalid_input`.
+
+---
+
+### 5.5 Merge-preparation hardening completed
+
+The oracle now rejects non-finite or structurally invalid numeric input. If the
+margin cannot support the minimum 5% markdown while retaining Rp500 profit, it
+returns `invalid_input` instead of a misleading 0% "recommendation" or a price
+above the original. Low-price Rp500 rounding also falls downward when nearest
+rounding would erase the markdown.
+
+The parse/write validators now enforce the frozen contracts rather than only a
+subset of their keys: exact shapes, types and ranges, exact missing-field
+bookkeeping, sentence limits, status-aware promo behavior, and decimal-safe
+number faithfulness. Regression tests cover each case.
 
 ---
 
@@ -323,9 +342,8 @@ penyisihan MVP regardless of model progress):
   `schemas` + a model-client seam (with the §5.4.2 degradation path). *Writable
   here, but not runnable until pip/FastAPI is bootstrapped.* The **structured-input
   path needs no model** and is fully demoable on its own.
-- **Frontend** — a small SPA (form + free-text + result screen + static
-  deal-card preview). **Stack decision pending** (React/Vite vs plain static),
-  and tied to the native-vs-web decision in §5.4.4.
+- **Frontend integration** — replace the Flutter branch's mock recommendation
+  repository with the eventual API and align float/default-confirmation fields.
 
 ### Suggested immediate next step
 
@@ -358,7 +376,7 @@ settled.
 ```bash
 git checkout feat/pricing-engine
 cd backend
-python3 -m unittest discover -s tests -v      # expect: Ran 40 tests ... OK
+python3 -m unittest discover -s tests -v      # expect: all tests pass
 ```
 
 Then read, in order: `hargaturun/pricing.py` (the formula), `tests/test_pricing.py`
