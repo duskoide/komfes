@@ -3,7 +3,32 @@
 FastAPI orchestration around the deterministic pricing oracle, plus the minimal
 SQLite marketplace used by the current Flutter UI.
 
-## Run
+## Full-stack Compose (recommended)
+
+Prerequisites: Docker Engine, Docker Compose v2, the NVIDIA Container Toolkit,
+and enough free space for the approximately 2.6 GB base GGUF. Then run:
+
+```bash
+docker compose up --build
+```
+
+The first run creates Docker volumes, downloads the temporary base
+`Qwen3.5-4B Q4_K_M` GGUF only when absent, verifies its pinned SHA-256, starts
+the CUDA llama.cpp server, installs/builds the backend and Flutter dependencies,
+and waits for health checks before exposing the UI.
+
+- Flutter web: `http://127.0.0.1:3000`
+- FastAPI: `http://127.0.0.1:8000`
+- llama.cpp: `http://127.0.0.1:8080/v1`
+- demo OTP: `123456`
+
+The model and SQLite database persist in named volumes. Rebuilding containers
+does not redownload the model. To stop the stack, use `docker compose down`.
+Do **not** add `-v` unless you intentionally want to delete both persisted
+volumes. Override ports, the public API URL, model URL/hash, or secrets through
+the `HARGATURUN_*` variables documented in `compose.yml`.
+
+## Native development
 
 Start the local base-model server from the repository root. The launcher detects
 LM Studio's bundled CUDA llama.cpp runtime and uses the ignored GGUF under

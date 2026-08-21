@@ -37,7 +37,14 @@ class _AiProcessingScreenState extends ConsumerState<AiProcessingScreen> {
       if (!mounted) return;
       setState(() => _elapsed = _stopwatch.elapsed);
     });
-    _run();
+    // submit() mengubah state provider secara sinkron di baris pertamanya.
+    // Memanggilnya langsung dari initState memicu error Riverpod
+    // "Tried to modify a provider while the widget tree was building",
+    // sehingga proses berhenti dan layar macet di loading. Tunda sampai
+    // frame pertama selesai dibangun.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _run();
+    });
   }
 
   @override

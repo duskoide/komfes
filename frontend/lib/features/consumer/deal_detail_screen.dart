@@ -72,13 +72,28 @@ class ConsumerDealDetailScreen extends ConsumerWidget {
                 ],
               ),
               const SizedBox(height: AppSpacing.lg),
-              Row(
+              Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.xs,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   UrgencyChip(level: deal.urgency, label: deal.remainingLabel),
-                  const SizedBox(width: AppSpacing.sm),
-                  Icon(Icons.inventory_2_outlined, size: 16, color: AppColors.textSecondary),
-                  const SizedBox(width: 4),
-                  Text('Stok ${deal.remainingStock}', style: AppTypography.caption),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.inventory_2_outlined, size: 16, color: AppColors.textSecondary),
+                      const SizedBox(width: 4),
+                      Text('Stok ${deal.remainingStock}', style: AppTypography.caption),
+                    ],
+                  ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.event_outlined, size: 16, color: AppColors.textSecondary),
+                      const SizedBox(width: 4),
+                      Text('Exp ${deal.expiryLabel}', style: AppTypography.caption),
+                    ],
+                  ),
                 ],
               ),
               const SizedBox(height: AppSpacing.xl),

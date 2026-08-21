@@ -52,6 +52,26 @@ class Deal {
     return d == 1 ? 'Sisa 1 hari' : 'Sisa $d hari';
   }
 
+  /// Perkiraan tanggal kedaluwarsa. Backend sengaja tidak menyimpan expiry
+  /// sebagai tanggal (lihat SRS: expiry otomatis ditangguhkan), jadi tanggal
+  /// ini dihitung di sisi UI dari `daysRemaining` sebagai hint untuk pembeli.
+  DateTime get expiryDate {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final daysToAdd = daysRemaining < 1 ? 0 : daysRemaining.round();
+    return today.add(Duration(days: daysToAdd));
+  }
+
+  /// Label ringkas tanggal kedaluwarsa dalam Bahasa Indonesia, mis. `5 Sep 2025`.
+  String get expiryLabel {
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
+      'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des',
+    ];
+    final d = expiryDate;
+    return '${d.day} ${months[d.month - 1]} ${d.year}';
+  }
+
   Deal copyWith({
     int? remainingStock,
     DealStatus? status,

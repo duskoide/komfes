@@ -1,3 +1,8 @@
-graphify-out/
-.direnv/
-backend/data/
+# direnv-generated environment and flake profile links
+/.direnv/
+
+# Graphify-generated knowledge graph and reports
+/graphify-out/
+
+# Local SQLite runtime data
+/backend/data/

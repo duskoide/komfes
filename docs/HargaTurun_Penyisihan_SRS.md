@@ -1,283 +1,362 @@
 # HargaTurun — Software Requirements Specification: Penyisihan MVP
 
-> **Status:** Authoritative specification for COMPFEST 18 AIC penyisihan
-> **Scope:** Business-owner recommendation flow only
-> **Companion documents:** [Project Spec](HargaTurun_Project_Spec.md), [Fine-Tuning Plan](HargaTurun_FineTuning_Plan.md), [AIC Technical Guide](AIC_Technical_Guide.md)
-> **Supersedes:** the mixed implementation scope formerly described in [HargaTurun_SRS.md](HargaTurun_SRS.md)
+> **Status:** Authoritative preliminary-round specification
+> **Version:** 2.0 — constrained conversational copilot
+> **Scope:** One bounded, synchronous, single-item pricing consultation
+> **Companion documents:** [Project Spec](HargaTurun_Project_Spec.md), [Agentic Workflow Plan](HargaTurun_Agentic_Workflow_Plan.md), [AIC Technical Guide](AIC_Technical_Guide.md)
 
-## 1. Purpose and scope
+## 1. Purpose
 
-HargaTurun helps an Indonesian food UMKM owner decide whether and how much to discount a single at-risk item. In one synchronous interaction, the owner provides item data and receives a deterministic price recommendation plus Indonesian explanation and promotional-copy preview.
+HargaTurun helps an Indonesian food UMKM owner decide whether and how to discount one at-risk item. Instead of requiring a long form or interpreting one isolated sentence, the MVP provides a bounded chat consultation:
 
-This specification deliberately implements only the preliminary-round core. The AIC rules require a UI for a single input/output AI interaction, synchronous processing, static inference parameters, local reproducibility through `docker compose`, and a genuinely fine-tuned model. They do **not** require a consumer marketplace, deal lifecycle, or operational feedback system. Those are planned separately in [HargaTurun_Final_SRS.md](HargaTurun_Final_SRS.md).
+1. capture facts from colloquial Indonesian;
+2. ask only for missing or ambiguous facts;
+3. show an editable structured confirmation;
+4. call a deterministic pricing tool after explicit confirmation;
+5. explain the resulting recommendation, no-action decision, or warning.
 
-### 1.1 Goals
+The chatbot is a user interface to a governed agentic workflow. It is not a general assistant, and the language model is never the pricing authority.
 
-- Accept a structured form or colloquial Indonesian free-text item description.
-- Use a fine-tuned local language model to parse free text and generate business explanation plus promo-copy preview.
-- Use deterministic Python code—not the model—for discount, price, projections, and safety limits.
-- Display one complete recommendation in Bahasa Indonesia in under 10 seconds under the target local setup.
-- Run locally with static model settings and no inference-time internet dependency after model setup.
+## 2. Competition interpretation and scope rule
 
-### 1.2 Explicit exclusions
+The original technical guide said pretrained models must be fine-tuned. The organizer later clarified that the underlying requirement is meaningful customization rather than an ordinary zero-shot call, and that advanced adaptation methods such as RAG, agentic workflows, tool/function calling, and integrated trained supporting models may satisfy it.
 
-The following must not be built for penyisihan:
+HargaTurun selects the **agentic workflow** route. Qualification evidence must show implemented orchestration, state, tool use, validation, and measured behavior. The team should retain the original organizer announcement and any written confirmation with submission materials.
 
-- Publishing, unpublishing, active-deal management, consumer deal feed, claims, redemption, or stock reservation.
-- Deal/claim database schema, historical usage pages, analytics, or automatic data logging.
-- Daily feedback loops, scheduled work, background jobs, queues, auto-tuning, or bulk-testing features in the app/repository.
-- Authentication, payments, geolocation, notifications, multi-shop tenancy, delivery, OCR, voice input, or mobile-native packaging.
+The preliminary MVP remains narrowly scoped: one vendor consultation, synchronous turns, static model parameters, no background autonomy, and local reproducibility.
 
-A rendered deal-card **preview** is allowed because it is output from the core recommendation; it is not a live consumer listing.
+## 3. Goals and exclusions
 
-## 2. Product flow
+### 3.1 Goals
+
+- Let a vendor describe one item naturally in Bahasa Indonesia.
+- Capture multiple facts from each message and support later corrections.
+- Never guess cost, stock, sales rate, expiry, or other consequential facts.
+- Require explicit confirmation of complete structured data.
+- Use deterministic Python—not the model—for every number and safety outcome.
+- Return an understandable action and faithful promotional-copy preview.
+- Demonstrate customization beyond a direct zero-shot chatbot.
+
+### 3.2 Explicit exclusions
+
+The preliminary build must not include:
+
+- generic business advice or unrestricted chat;
+- publishing, deal feeds, claims, redemption, or stock reservation;
+- authentication, user accounts, persistent chat history, analytics, or usage history;
+- background jobs, autonomous scheduled agents, feedback loops, or auto-tuning;
+- RAG, internet search, OCR, voice, multi-item processing, payment, maps, or delivery;
+- native-only packaging that prevents the required local browser demonstration.
+
+A static promo/deal-card preview is allowed as output from the consultation.
+
+## 4. User experience
+
+### 4.1 Primary interface
+
+The primary interface combines:
+
+- chat messages;
+- a compact “data yang sudah dicatat” summary;
+- grouped missing-field prompts/chips;
+- an editable confirmation card;
+- recommendation/no-action/warning cards;
+- a structured-form fallback.
+
+The assistant should extract all facts present in a message and ask for all remaining required facts together where practical. It should not force a one-question-per-field interview.
+
+### 4.2 Supported intents
+
+| Intent | Behavior |
+|---|---|
+| Start consultation | Create an empty state and extract supplied facts |
+| Supply information | Propose and validate updates to unknown fields |
+| Correct information | Replace specified fields, increment revision, invalidate confirmation/result |
+| Confirm data | Mark the current complete revision confirmed |
+| Calculate/recalculate | Invoke the pricing tool only for the confirmed current revision |
+| Explain result | Explain the existing authoritative result without changing it |
+| Revise promo wording | Rewrite wording while preserving authoritative status and numbers |
+| Out of scope | Redirect to single-item stock pricing without changing state |
+
+### 4.3 Example
 
 ```text
-Owner form or free text
-        |
-        v
-Frontend validation / confirmation
-        |
-        v
-POST /api/recommend (synchronous)
-        |
-        +--> Fine-tuned local model: parse + explanation + promo preview
-        |
-        +--> Python pricing engine: price + discount + projections + safety rules
-        |
-        v
-Single business-owner result screen
+Vendor: Ada 20 roti tawar, lusa expired. Harga 15rb, modal 10rb,
+        biasanya laku 4 sehari.
+Assistant: Aku mencatat ... Berapa total masa simpan dan kategorinya?
+Vendor: Bakery, masa simpan 5 hari.
+Assistant: [editable confirmation card]
+Vendor: Konfirmasi dan hitung.
+Assistant: [pricing tool called] [recommendation card + explanation]
+Vendor: Koreksi, stoknya 24.
+Assistant: Stok diperbarui ke 24. Rekomendasi sebelumnya sudah tidak berlaku.
+           [updated confirmation card]
 ```
 
-The user receives one of four outcomes:
+## 5. Conversation state and transitions
 
-1. **Recommendation:** a safe discount, rounded price, timing, projections, explanation, and promo preview.
-2. **No action:** stock is likely to sell before expiry; show when to reassess.
-3. **Input confirmation:** required facts are missing or ambiguous; prefill the structured fields and require confirmation before calculating.
-4. **Safety warning:** expired item or invalid economics, such as cost at or above selling price; no recommendation is issued.
+### 5.1 State contract
 
-## 3. Users and interface
+```json
+{
+  "item_name": null,
+  "category": null,
+  "original_price": null,
+  "cost": null,
+  "stock": null,
+  "days_remaining": null,
+  "daily_sales": null,
+  "total_shelf_life": null,
+  "shop_name": null,
+  "confirmed": false,
+  "revision": 0
+}
+```
 
-### 3.1 Primary user
+Required fields are all fields except `shop_name`. Allowed categories are `Bakery`, `Prepared Food`, `Dairy`, `Beverage`, `Produce`, `Snack`, `Canned`, and `Other`.
 
-A food UMKM owner or manager who needs an immediate markdown recommendation for one expiring product. The UI is desktop-first, Bahasa Indonesia, and avoids pricing jargon.
+### 5.2 State rules
 
-### 3.2 Single-screen business flow
+1. The model returns a **proposed patch**, never an authoritative full state.
+2. Application code validates type, domain, source text, and allowed fields before merging.
+3. Ambiguous or absent values remain `null`.
+4. Accepted changes increment `revision`.
+5. Any accepted change sets `confirmed=false` and invalidates an existing result.
+6. Confirmation is valid only for the current revision.
+7. Tool input is constructed from validated state, never directly from model output.
+8. Transcript context may help interpretation but cannot override state.
 
-1. Owner either completes the structured form or types free text such as `roti tawar 10 biji exp 2 hari harga 15rb modal 10rb`.
-2. Owner selects **Dapatkan Rekomendasi**.
-3. If parsing is incomplete or ambiguous, the app shows prefilled fields and asks for confirmation; it does not guess an economic input silently.
-4. The result appears on the same screen with **Ubah Input** and **Hitung Lagi** actions. There is no publish action in this round.
+### 5.3 Workflow states
 
-### 3.3 Structured input contract
+```text
+START
+  -> COLLECTING
+  -> READY_TO_CONFIRM
+  -> CONFIRMED
+  -> CALCULATING
+  -> RECOMMENDATION | NO_ACTION | WARNING
 
-| Field | Required | Source / rule |
-|---|---:|---|
-| `item_name` | Yes | Owner input or model parse, then confirmation |
-| `category` | Yes | One of Bakery, Prepared Food, Dairy, Beverage, Produce, Snack, Canned, Other |
-| `original_price` | Yes | Rupiah per sellable unit |
-| `cost` | Yes | Rupiah cost per sellable unit |
-| `stock` | Yes | Whole number of sellable units/servings |
-| `days_remaining` | Yes | Number of days until the item can no longer be sold |
-| `shop_name` | Recommended | Used only in promo preview; default may be omitted |
-| `daily_sales` | Yes or confirmed default | Owner estimate of units/day. It is not safely inferable from the current free-text model schema. |
-| `total_shelf_life` | Yes or category default | Owner value when known; otherwise use the category default below and disclose it in the result. |
+Any state -> OUT_OF_SCOPE (business state unchanged)
+Any model/tool error -> SAFE_FAILURE (validated state preserved)
+Any accepted correction -> COLLECTING or READY_TO_CONFIRM
+```
 
-The structured form must expose `daily_sales` and `total_shelf_life` (or their chosen defaults). Free text can omit them, but the backend must request confirmation rather than invent values.
-
-| Category | Default total shelf life (days) |
-|---|---:|
-| Bakery | 4 |
-| Prepared Food | 3 |
-| Dairy | 14 |
-| Beverage | 5 |
-| Produce | 7 |
-| Snack | 90 |
-| Canned | 365 |
-| Other | 30 |
-
-## 4. Functional requirements
+## 6. Functional requirements
 
 | ID | Requirement |
 |---|---|
-| P-FR-1 | The UI accepts one structured item input and validates required economic fields before calculation. |
-| P-FR-2 | The UI accepts one free-text Indonesian input. The model extracts available fields into the same structured representation. |
-| P-FR-3 | Missing or ambiguous required fields result in a confirmation form with prefilled values; the pricing engine is not called until confirmation. |
-| P-FR-4 | A single synchronous request returns either a recommendation, no-action response, input-confirmation response, or safety warning. |
-| P-FR-5 | The recommendation contains discount percent, recommended price, timing, expected sell-through, expected revenue, expected loss without action, and confidence wording. |
-| P-FR-6 | The result contains a 2–4 sentence business explanation and 1–2 sentence promo-copy preview in Bahasa Indonesia. |
-| P-FR-7 | The pricing engine is the sole authority for numerical values. The model must not supply discount, price, revenue, or loss values. |
-| P-FR-8 | The engine never recommends a price below `cost + Rp500`; discount and price rounding obey the documented oracle rules. |
-| P-FR-9 | Items already expired, items with zero/negative margin, and invalid numeric inputs produce a clear warning and no recommendation. |
-| P-FR-10 | Low-pressure items return `no_action` with a reassessment message instead of a forced discount. |
-| P-FR-11 | The result screen renders a static deal-card preview using the computed price and generated promo copy. It has no publish or claim control. |
-| P-FR-12 | Same confirmed input and static inference configuration produce reproducible numerical output; model serving uses static parameters, including temperature `0`. |
+| P-FR-1 | The UI starts one consultation for one item and accepts natural Indonesian messages. |
+| P-FR-2 | A message may supply or correct multiple supported fields. |
+| P-FR-3 | The model operation returns only a schema-constrained proposed patch, ambiguities, and recognized intent. |
+| P-FR-4 | Unknown, unsupported, or ambiguous business values are not merged as facts. |
+| P-FR-5 | The assistant shows known values and all current gaps after a meaningful update. |
+| P-FR-6 | The assistant groups missing-field questions where practical. |
+| P-FR-7 | Complete data produces an editable confirmation card, not an automatic calculation. |
+| P-FR-8 | The pricing tool cannot run without explicit confirmation of the current revision. |
+| P-FR-9 | `pricing.compute` is the sole authority for discount, price, timing, projections, confidence, no-action, and warnings. |
+| P-FR-10 | The writer receives the confirmed state and complete authoritative engine result. |
+| P-FR-11 | Generated prose may mention only numbers present in confirmed state or engine output. |
+| P-FR-12 | Invalid prose triggers at most one validator-guided repair, followed by a safe fallback. |
+| P-FR-13 | A correction invalidates old confirmation and old recommendation. |
+| P-FR-14 | Out-of-domain chat returns a redirect and does not modify state or call tools. |
+| P-FR-15 | A form fallback can produce the same validated state and pricing result. |
+| P-FR-16 | The result provides `recommendation`, `no_action`, or `warning`; these are mutually exclusive. |
+| P-FR-17 | The UI can display a sanitized trace in evaluation mode: state transition, validation result, tool name, and status—never hidden chain-of-thought. |
+| P-FR-18 | All turns are synchronous; no job continues after the response is returned. |
 
-## 5. Architecture and components
-
-### 5.1 Deployment topology
+## 7. Architecture
 
 ```text
-Browser SPA  --HTTP-->  FastAPI API  --HTTP-->  local model server
-                              |
-                              +--> pricing.py (pure Python)
+Browser chat + structured cards
+          |
+          v
+FastAPI chat endpoint
+          |
+          +--> ConversationOrchestrator
+                  |-- validate/merge state patch
+                  |-- enforce transition guards
+                  |-- record sanitized trace
+                  |
+                  +--> local Qwen model: extract patch / write language
+                  +--> PricingTool: pricing.compute()
+                  +--> output validators and safe fallback
 ```
 
-`docker compose up` starts the frontend, API, and model server. A three-service deployment is justified only because local model serving is part of the required end-to-end inference; no database service is needed for penyisihan.
+### 7.1 Language model responsibilities
 
-### 5.2 Frontend
+The local base model is adapted through the workflow to:
 
-A small React/Vite single-page application is acceptable, but any simple browser UI is valid. It owns form validation, free-text entry, confirmation state, loading/error state, and the result screen. It must not contain marketplace pages or deal history.
+- extract explicit facts and corrections from Indonesian messages;
+- identify ambiguity without resolving it by guessing;
+- generate concise, context-appropriate wording;
+- explain the authoritative engine result;
+- write or revise faithful promo copy.
 
-### 5.3 API
+It does not select arbitrary tools, own state, confirm on behalf of the user, or calculate prices.
 
-FastAPI exposes one core synchronous endpoint. It validates normalized structured values, invokes the model only when needed for parsing/text generation, invokes the pure pricing engine, and assembles the response.
+### 7.2 Pricing tool
 
-### 5.4 Fine-tuned model server
+`PricingTool.compute` wraps the existing pure `pricing.compute(PricingInput)` implementation. The wrapper provides a stable name, typed arguments, trace event, and serializable result. The underlying formula and tests remain authoritative.
 
-The selected base model and serving format must be documented and verified during implementation. The project currently plans Qwen3.5-4B with BF16 LoRA through Unsloth and GGUF serving through llama.cpp. Current Unsloth guidance does not recommend QLoRA for Qwen3.5; BF16 LoRA training requires a GPU larger than the 8 GB inference laptop. This SRS does not claim availability or performance until the full pipeline is tested. The model is genuinely fine-tuned for HargaTurun's Indonesian parsing and text-generation tasks, then served locally with static settings.
+### 7.3 Model serving
 
-The model responsibility is limited to:
+- Qwen3.5-4B through local llama.cpp/OpenAI-compatible chat completion.
+- Static documented parameters, including temperature `0`.
+- Thinking disabled.
+- Schema-constrained outputs.
+- No inference-time internet dependency after artifact setup.
 
-- parse free text into allowed structured fields and identify missing required fields;
-- after confirmed input is priced by the deterministic engine, generate a qualitative explanation;
-- after confirmed input is priced by the deterministic engine, generate qualitative promo copy.
+A base model is acceptable for the selected agentic route. A fine-tuned model may be substituted only after measured evaluation; documentation must identify which artifact is actually running.
 
-### 5.5 Pricing engine
+## 8. API contract
 
-`pricing.py` is a pure Python module with no database, model, or network dependency. It implements the product spec's oracle rules: supply pressure, relative expiry urgency, category bias, margin ceiling, bounded/rounded discount, rounded price, projections, timing, and confidence. Its inputs must already be confirmed.
+### 8.1 `POST /api/chat`
 
-No prior-stock argument, daily re-run adjustment, or learning loop belongs in this round.
-
-## 6. API contract
-
-### 6.1 `POST /api/recommend`
-
-Request accepts exactly one input mode.
+Each request carries the current transient state, the new user message or explicit UI action, and the latest result identifier when relevant. The preliminary backend need not persist sessions.
 
 ```json
 {
-  "free_text": "roti tawar 10 biji exp 2 hari harga 15rb modal 10rb toko sari bakery"
-}
-```
-
-or:
-
-```json
-{
-  "item_name": "Roti Tawar",
-  "category": "Bakery",
-  "original_price": 15000,
-  "cost": 10000,
-  "stock": 10,
-  "days_remaining": 2,
-  "daily_sales": 5,
-  "total_shelf_life": 4,
-  "shop_name": "Toko Sari Bakery"
-}
-```
-
-Free text must return `422` with `needs_confirmation: true` and prefilled parsed fields when a required field, `daily_sales`, or a shelf-life choice is unavailable. It must not fabricate them.
-
-Successful recommendation:
-
-```json
-{
-  "status": "recommendation",
-  "normalized_input": {
+  "message": "stoknya ternyata 24",
+  "action": "message",
+  "state": {
     "item_name": "Roti Tawar",
     "category": "Bakery",
     "original_price": 15000,
     "cost": 10000,
-    "stock": 10,
+    "stock": 20,
     "days_remaining": 2,
-    "daily_sales": 5,
-    "total_shelf_life": 4,
-    "shop_name": "Toko Sari Bakery"
-  },
-  "recommendation": {
-    "discount_percent": 30,
-    "recommended_price": 10500,
-    "timing": "Mulai diskon hari ini",
-    "expected_sell_through": "8 dari 10 pcs",
-    "expected_revenue": 84000,
-    "expected_loss_no_action": 50000,
-    "confidence": "Cukup yakin"
-  },
-  "explanation": "...",
-  "promo_copy": "...",
-  "preview": {
-    "item_name": "Roti Tawar",
-    "shop_name": "Toko Sari Bakery",
-    "original_price": 15000,
-    "deal_price": 10500,
-    "discount_percent": 30,
-    "days_remaining": 2,
-    "stock": 10
+    "daily_sales": 4,
+    "total_shelf_life": 5,
+    "shop_name": null,
+    "confirmed": true,
+    "revision": 2
   }
 }
 ```
 
-Alternative responses:
+Allowed `action` values: `message`, `confirm`, `calculate`, `explain`, `revise_promo`, and `reset`.
 
-- `200 { "status": "no_action", "message": "Belum perlu diskon...", "reassess_in_days": 5 }`
-- `422 { "status": "needs_confirmation", "parsed_input": { ... }, "missing_fields": ["daily_sales"] }`
-- `422 { "status": "invalid_input", "message": "Harga modal ≥ harga jual..." }`
-- `502 { "status": "model_unavailable", "message": "..." }`
+Representative response:
 
-## 7. Non-functional requirements
+```json
+{
+  "status": "ready_to_confirm",
+  "assistant_message": "Stok diperbarui menjadi 24. Rekomendasi sebelumnya tidak lagi berlaku.",
+  "state": {
+    "item_name": "Roti Tawar",
+    "category": "Bakery",
+    "original_price": 15000,
+    "cost": 10000,
+    "stock": 24,
+    "days_remaining": 2,
+    "daily_sales": 4,
+    "total_shelf_life": 5,
+    "shop_name": null,
+    "confirmed": false,
+    "revision": 3
+  },
+  "missing_fields": [],
+  "result": null,
+  "ui": { "show_confirmation": true },
+  "trace_id": "..."
+}
+```
+
+Allowed statuses: `collecting`, `ready_to_confirm`, `confirmed`, `recommendation`, `no_action`, `warning`, `out_of_scope`, `model_unavailable`, and `invalid_request`.
+
+The server validates all client-carried state. A production extension may sign state, but account/session persistence is not required for the preliminary local demo.
+
+### 8.2 Result shape
+
+For `recommendation`, `result` contains the engine recommendation, explanation, promo copy, and static preview. `no_action` and `warning` never contain a publishable discounted offer.
+
+## 9. Non-functional requirements
 
 | ID | Requirement |
 |---|---|
-| P-NFR-1 | End-to-end confirmed-input response target is under 10 seconds on the declared local target hardware. |
-| P-NFR-2 | The implementation runs locally through documented `docker compose` commands. |
-| P-NFR-3 | After the one-time model setup, inference has no external API or internet dependency. |
-| P-NFR-4 | Model parameters are static and documented; inference uses deterministic serving configuration. |
-| P-NFR-5 | All core app text and model output are Bahasa Indonesia. |
-| P-NFR-6 | The app persists no deals, claims, user accounts, or operational history in penyisihan. |
-| P-NFR-7 | The README identifies required host prerequisites, model acquisition/setup, expected hardware, startup time, and a smoke-test request. |
+| P-NFR-1 | Warm turn P95 and full consultation latency are measured on declared hardware; target each normal turn under 10 seconds. |
+| P-NFR-2 | Full preliminary stack starts with one documented `docker compose up --build` command. |
+| P-NFR-3 | Inference is local/offline after one-time image/model setup. |
+| P-NFR-4 | Prompt versions, model identity/hash, chat template, and decoding parameters are recorded. |
+| P-NFR-5 | Confirmed identical state yields byte-identical numerical engine output. |
+| P-NFR-6 | A model failure preserves state and cannot create a recommendation. |
+| P-NFR-7 | No deals, users, chat transcripts, or analytics are persisted. |
+| P-NFR-8 | Core UI and responses use clear Bahasa Indonesia. |
 
-## 8. Acceptance and validation
+## 10. Acceptance tests
 
-### 8.1 Required product checks
+### 10.1 Conversation and state
 
-- Structured valid input returns a complete recommendation.
-- Free text correctly parses a known colloquial example and returns a complete result after any required confirmation.
-- Missing `cost`, `daily_sales`, or shelf-life choice produces confirmation, not a fabricated recommendation.
-- A far-expiry, low-pressure item returns no action.
-- An item expiring today returns the bounded fire-sale response while respecting the margin floor.
-- An expired item and `cost >= original_price` return warnings with no recommendation.
-- Every generated recommendation satisfies `recommended_price >= cost + 500`.
-- Repeating a confirmed request produces identical numerical values.
+- One message containing five facts populates all five fields.
+- Missing cost and sales rate remain `null` and are requested together.
+- `15rb`, `lusa`, and supported unit variants normalize correctly.
+- “stoknya bukan 20, tapi 24” changes only stock, increments revision, and invalidates confirmation/result.
+- An ambiguous correction does not overwrite an existing confirmed value.
+- An out-of-domain question leaves business state byte-identical.
 
-### 8.2 Model evidence
+### 10.2 Tool gating and pricing safety
 
-Before fine-tuning, run the existing baseline evaluation against a real local model server. After fine-tuning, compare held-out parsing/JSON compliance results using a separate evaluation set. Record the actual results in an evaluation report or proposal; do not claim target percentages as achieved until measured.
+- Calculate before confirmation is rejected without a tool call.
+- Confirmation with missing fields is rejected without a tool call.
+- Confirmed complete state causes exactly one pricing-tool call.
+- Tool arguments exactly match confirmed state.
+- Repeating identical confirmed state produces identical numbers.
+- Margin floor, expired item, no-action, and fire-sale cases match pricing tests.
 
-### 8.3 Proof-of-work readiness
+### 10.3 Writing safety
 
-The recorded preliminary proof of work must show, without cuts:
+- The writer receives the exact engine result.
+- Unsupported numerical claims are rejected.
+- No-action and warning never generate discount promo copy.
+- One invalid response triggers one repair at most.
+- A second failure returns a safe template or numbers-only result.
 
-1. terminal and browser running locally with timestamps;
-2. the model/API startup path;
-3. one structured or free-text recommendation flow;
-4. one validation or no-action/safety case;
-5. the actual generated result screen and its promo preview.
+### 10.4 End-to-end demo
 
-Every feature shown in the innovation video must exist in this runnable MVP.
+The proof path must show, without hidden steps:
 
-## 9. Traceability and risks
+1. natural first message;
+2. grouped clarification;
+3. structured confirmation card;
+4. sanitized trace showing the pricing-tool call;
+5. recommendation card;
+6. correction and invalidation/recalculation;
+7. one safe out-of-domain or model-failure case.
 
-| AIC expectation | HargaTurun response |
+## 11. AI-customization evaluation
+
+Use a held-out, manually reviewed set of representative Indonesian multi-turn consultations. Compare:
+
+1. a direct base-model chatbot with a single HargaTurun system prompt;
+2. the same base model inside the customized workflow.
+
+Report:
+
+- valid schema rate;
+- per-field and complete-state accuracy;
+- correction accuracy;
+- missing/ambiguous recall and false completion;
+- premature/illegal tool-call count;
+- stale-result reuse count;
+- unsupported numerical claims;
+- engine-status faithfulness;
+- completion rate and turns to confirmation;
+- P50/P95 latency.
+
+No target may be reported as achieved until the raw report exists. Evaluation artifacts and required evidence are defined in the Agentic Workflow Plan.
+
+## 12. Traceability to competition expectations
+
+| Expectation | HargaTurun response |
 |---|---|
-| Single core UI interaction | One business-owner input/result screen |
-| Synchronous backend | One `POST /api/recommend` request, no queues/jobs |
-| Fine-tuned model with static parameters | Local fine-tuned model restricted to language tasks, temperature `0` |
-| Local reproducibility | Docker Compose plus documented model setup |
-| Proportional technical scope | No marketplace, persistence, or automation in preliminary round |
+| Meaningful AI customization | Domain-specific agentic workflow with state, tools, validators, confirmation, repair, and evaluation |
+| Core AI interaction | One bounded single-item consultation |
+| Static parameters | Fixed model/prompt/config versions and deterministic pricing |
+| Synchronous backend | One request/response per turn; no background agent |
+| Local reproducibility | Docker Compose and local model serving |
+| Scope discipline | No auth, marketplace, persistence, analytics, RAG, or bulk features in preliminary build |
+| Explainability | Visible structured state, tool-derived result, concise explanation, sanitized trace |
 
-Primary execution risks: model/toolchain availability, actual 8 GB VRAM fit, local cold-start/inference performance, and synthetic-data quality. Mitigate by validating the base-model path first, keeping the pricing engine pure and testable, evaluating the fine-tuned model on held-out examples, and using the structured form as the safe fallback.
+## 13. Deferred final work
 
-## 10. Deferred final work
-
-If the team advances, use [HargaTurun_Final_SRS.md](HargaTurun_Final_SRS.md) as the separate plan for publishing a computed preview, consumer browsing, claims, redemption, and minimal SQLite persistence. That work is deliberately absent from this MVP.
+If the team advances, `HargaTurun_Final_SRS.md` adds publish, browse, claim, and redeem around a completed recommendation. The preliminary chatbot and pricing safety contracts remain unchanged.

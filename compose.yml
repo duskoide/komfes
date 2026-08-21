@@ -1,0 +1,178 @@
+name: hargaturun
+
+services:
+  model-init:
+    image: curlimages/curl:8.12.1
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-ec"]
+    environment:
+      MODEL_URL: ${HARGATURUN_MODEL_DOWNLOAD_URL:-https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf}
+      MODEL_SHA256: ${HARGATURUN_MODEL_SHA256:-00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4}
+      MODEL_FILE: hargaturun-qwen3.5-4b-q4_k_m.gguf
+    volumes:
+      - model-data:/models
+    command:
+      - |
+        target="/models/$${MODEL_FILE}"
+        partial="$${target}.part"
+        if [ -f "$${target}" ]; then
+          actual="$$(sha256sum "$${target}" | awk '{print $$1}')"
+          if [ "$${actual}" = "$${MODEL_SHA256}" ]; then
+            echo "Model already present and verified: $${target}"
+            exit 0
+          fi
+          echo "Existing model checksum mismatch: $${actual}" >&2
+          exit 1
+        fi
+        echo "Downloading base Qwen GGUF to Docker volume..."
+        curl --fail --location --retry 5 --retry-delay 3 --continue-at - \
+          --output "$${partial}" "$${MODEL_URL}"
+        actual="$$(sha256sum "$${partial}" | awk '{print $$1}')"
+        if [ "$${actual}" != "$${MODEL_SHA256}" ]; then
+          echo "Downloaded model checksum mismatch: $${actual}" >&2
+          exit 1
+        fi
+        mv "$${partial}" "$${target}"
+        echo "Model downloaded and verified: $${target}"
+    restart: "no"
+
+  llm-server:
+    image: ${HARGATURUN_LLAMA_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda}
+    pull_policy: missing
+    gpus: all
+    depends_on:
+      model-init:
+        condition: service_completed_successfully
+    volumes:
+      - model-data:/models:ro
+    ports:
+      - "127.0.0.1:${HARGATURUN_MODEL_PORT:-8080}:8080"
+    command:
+      - --model
+      - /models/hargaturun-qwen3.5-4b-q4_k_m.gguf
+      - --alias
+      - hargaturun-qwen3.5-4b
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8080"
+      - --ctx-size
+      - "4096"
+      - --n-predict
+      - "350"
+      - --parallel
+      - "1"
+      - --n-gpu-layers
+      - all
+      - --split-mode
+      - none
+      - --flash-attn
+      - "on"
+      - --fit
+      - "off"
+      - --batch-size
+      - "512"
+      - --ubatch-size
+      - "128"
+      - --cache-type-k
+      - f16
+      - --cache-type-v
+      - f16
+      - --temperature
+      - "0"
+      - --top-k
+      - "0"
+      - --top-p
+      - "1"
+      - --min-p
+      - "0"
+      - --repeat-penalty
+      - "1"
+      - --seed
+      - "42"
+      - --reasoning
+      - "off"
+      - --reasoning-budget
+      - "0"
+      - --no-cache-prompt
+      - --cache-ram
+      - "0"
+      - --no-cont-batching
+      - --no-mmproj
+      - --no-ui
+      - --offline
+      - --metrics
+      - --warmup
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  llm-ready:
+    image: curlimages/curl:8.12.1
+    depends_on:
+      llm-server:
+        condition: service_started
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        for attempt in $$(seq 1 180); do
+          if curl --fail --silent http://llm-server:8080/health >/dev/null; then
+            echo "Model server is ready"
+            exit 0
+          fi
+          sleep 2
+        done
+        echo "Model server did not become ready" >&2
+        exit 1
+    restart: "no"
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      HARGATURUN_HOST: 0.0.0.0
+      HARGATURUN_PORT: "8000"
+      HARGATURUN_DB: /app/data/hargaturun.db
+      HARGATURUN_MODEL_URL: http://llm-server:8080/v1
+      HARGATURUN_MODEL_NAME: hargaturun-qwen3.5-4b
+      HARGATURUN_MODEL_TIMEOUT: ${HARGATURUN_MODEL_TIMEOUT:-120}
+      HARGATURUN_DEMO_OTP: ${HARGATURUN_DEMO_OTP:-123456}
+      HARGATURUN_TOKEN_SECRET: ${HARGATURUN_TOKEN_SECRET:-local-demo-only-change-me}
+      HARGATURUN_CORS_ORIGINS: ${HARGATURUN_CORS_ORIGINS:-http://127.0.0.1:3000,http://localhost:3000}
+    depends_on:
+      llm-ready:
+        condition: service_completed_successfully
+    volumes:
+      - app-data:/app/data
+    ports:
+      - "127.0.0.1:${HARGATURUN_API_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        API_BASE_URL: ${HARGATURUN_PUBLIC_API_URL:-http://127.0.0.1:8000}
+        DEVICE_PREVIEW: ${HARGATURUN_DEVICE_PREVIEW:-true}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${HARGATURUN_WEB_PORT:-3000}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+    restart: unless-stopped
+
+volumes:
+  model-data:
+  app-data:

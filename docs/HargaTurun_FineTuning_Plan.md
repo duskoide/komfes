@@ -1,9 +1,11 @@
-# HargaTurun — Fine-Tuning Plan & Runbook
+# HargaTurun — Parameter Fine-Tuning Plan (Superseded / Optional)
 
-> **Document type:** engineering runbook + proposal methodology source  
-> **Competition:** COMPFEST 18 AIC — model must be genuinely fine-tuned  
-> **Version:** 1.1  
-> **Status:** design corrected; scripts and measured results still required
+> **Document type:** historical engineering runbook; optional future optimization
+> **Superseded by:** [`HargaTurun_Agentic_Workflow_Plan.md`](HargaTurun_Agentic_Workflow_Plan.md)
+> **Version:** 1.2-superseded
+> **Status:** **not the selected competition-compliance route and not an implementation claim**
+>
+> The organizer clarification permits advanced customization such as agentic workflows in addition to LoRA/QLoRA. HargaTurun now selects a constrained agentic workflow with deterministic pricing-tool use. Do not use this document to claim that training occurred, that a fine-tuned artifact exists, or that LoRA is required. Re-activate any section only if evaluation identifies a measured need and the team produces the real configs, data, logs, adapters, hashes, and reports.
 
 ---
 
@@ -484,7 +486,7 @@ Do not use rank increases as the default fix for every error. Correct data and c
 
 ---
 
-## 8. Proposal methodology mapping
+## 8. Historical proposal methodology (do not use as the current methodology)
 
 ### 8.1 Dataset acquisition
 
@@ -506,7 +508,7 @@ Do not copy target percentages into the proposal as achieved results until the r
 
 ---
 
-## 9. Deliverables and execution order
+## 9. Optional fine-tuning deliverables (inactive)
 
 | Order | Deliverable | Exit condition |
 |---:|---|---|
