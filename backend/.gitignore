@@ -17,3 +17,10 @@ env/
 .ruff_cache/
 .coverage
 htmlcov/
+
+# Generated dataset splits: reproducible from `python3 -m hargaturun.dataset`,
+# so they are not committed. The hand-authored gold test set (data/gold_test.jsonl)
+# IS committed and must not be ignored.
+data/train.jsonl
+data/validation.jsonl
+data/test.jsonl
