@@ -15,6 +15,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .consultation import (
+    ASK_FOR_MISSING_FIELDS,
+    CALL_PRICING_TOOL,
+    EXPLAIN_RESULT,
+    OUT_OF_SCOPE,
+    REQUEST_ACTIONS,
+    SAFE_FAILURE,
+    SHOW_CONFIRMATION,
+    ConsultationState,
+    PricingTool,
+    PricingToolRefused,
+    SessionStore,
+    confirm as confirm_state,
+    decide_action,
+    merge_patch,
+    validate_patch,
+)
 from .database import Database
 from .model_client import ModelContractError, ModelUnavailable, OpenAICompatibleModel, TextModel
 from .pricing import (
@@ -22,6 +39,7 @@ from .pricing import (
     MIN_MARGIN_RP,
     STATUS_INVALID,
     STATUS_NO_ACTION,
+    STATUS_RECOMMENDATION,
     PricingInput,
     compute,
 )
@@ -88,6 +106,13 @@ class ShopRequest(StrictModel):
     short_address: str | None = Field(default=None, max_length=300)
 
 
+class ChatRequest(StrictModel):
+    session_id: str | None = Field(default=None, min_length=1, max_length=64)
+    action: str = Field(default="message", min_length=1, max_length=32)
+    text: str | None = Field(default=None, max_length=1000)
+    patch: dict[str, Any] | None = None
+
+
 def create_app(
     *,
     database_path: str | Path | None = None,
@@ -103,6 +128,7 @@ def create_app(
     app = FastAPI(title="HargaTurun API", version="0.1.0", lifespan=lifespan)
     app.state.database = database
     app.state.model = model or OpenAICompatibleModel()
+    app.state.sessions = SessionStore()
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins(),
@@ -217,6 +243,103 @@ def create_app(
                 "stock": normalized["stock"],
             },
         }
+
+    @app.post("/api/chat", response_model=None)
+    def chat(payload: ChatRequest):
+        """One synchronous consultation turn.
+
+        Every decision below is taken by code. The model is asked only to
+        propose field patches; it never chooses the action, never supplies a
+        number, and cannot reach the pricing tool directly.
+        """
+        if payload.action not in REQUEST_ACTIONS:
+            return JSONResponse(
+                status_code=422,
+                content={"detail": "Aksi tidak dikenal."},
+            )
+
+        sessions: SessionStore = app.state.sessions
+
+        if payload.session_id is None:
+            session = sessions.create()
+        else:
+            session = sessions.get(payload.session_id)
+            if session is None:
+                return JSONResponse(
+                    status_code=404,
+                    content={"detail": "Sesi konsultasi tidak ditemukan."},
+                )
+
+        if payload.action == "reset":
+            sessions.drop(session.session_id)
+            fresh = sessions.create()
+            return _chat_response(
+                fresh,
+                action=ASK_FOR_MISSING_FIELDS,
+                message="Oke, kita mulai dari awal. Cerita saja barangmu.",
+            )
+
+        # --- gather a proposed patch ------------------------------------- #
+        proposed: object = {}
+        if payload.action == "message":
+            if not (payload.text or "").strip():
+                return JSONResponse(
+                    status_code=422,
+                    content={"detail": "Pesan tidak boleh kosong."},
+                )
+            try:
+                parsed = app.state.model.parse(payload.text)
+                proposed = parsed.get("parsed_input", {})
+            except (ModelUnavailable, ModelContractError):
+                # State survives an outage: nothing is merged, nothing is lost.
+                return _chat_response(
+                    session,
+                    action=SAFE_FAILURE,
+                    message=(
+                        "Sistem AI sedang tidak tersedia. Datamu tetap tersimpan — "
+                        "coba lagi, atau isi form manual."
+                    ),
+                )
+        elif payload.action == "confirm":
+            proposed = payload.patch or {}
+
+        accepted, _rejected = validate_patch(proposed, allowed_categories=CATEGORIES)
+        before = session.state
+        session.state = merge_patch(session.state, accepted)
+        if session.state.revision != before.revision:
+            # An accepted change invalidates any previous result.
+            session.drop_result()
+
+        if payload.action == "confirm":
+            session.state = confirm_state(session.state)
+
+        # --- decide and act ---------------------------------------------- #
+        action = decide_action(session.state, has_result=session.result is not None)
+
+        if payload.action == "calculate" and action != CALL_PRICING_TOOL:
+            # Explicit calculate on an unconfirmed or incomplete state performs
+            # no tool call at all; the client is told what is still needed.
+            return _chat_response(session, action=action, message=_prompt_for(action, session))
+
+        if action == CALL_PRICING_TOOL:
+            tool: PricingTool = PricingTool()
+            try:
+                oracle = tool.compute(session.state)
+            except PricingToolRefused:
+                return _chat_response(
+                    session,
+                    action=SAFE_FAILURE,
+                    message="Datanya belum siap dihitung.",
+                )
+
+            session.result = _result_payload(session.state, oracle, app.state.model)
+            session.result_status = oracle.status
+            session.state = ConsultationState(
+                **{**session.state.to_dict(), "result_revision": session.state.revision}
+            )
+            action = EXPLAIN_RESULT
+
+        return _chat_response(session, action=action, message=_prompt_for(action, session))
 
     @app.post("/api/auth/otp/request", status_code=204)
     def request_otp(_: PhoneRequest) -> Response:
@@ -406,6 +529,117 @@ def create_app(
         return [_claim_dict(row) for row in rows]
 
     return app
+
+
+_FIELD_LABELS = {
+    "item_name": "nama barangnya",
+    "category": "kategorinya",
+    "original_price": "harga jual sekarang",
+    "cost": "harga modal per barang",
+    "stock": "jumlah stoknya",
+    "days_remaining": "sisa berapa hari lagi",
+    "daily_sales": "rata-rata terjual per hari",
+}
+
+
+def _prompt_for(action: str, session: Any) -> str:
+    """Assistant copy chosen by action, not generated by the model.
+
+    Keeping these deterministic means an outage or a contract failure still
+    produces sensible Indonesian, and no unsupported number can appear in the
+    prose because none of it is written by the model.
+    """
+    state = session.state
+    if action == ASK_FOR_MISSING_FIELDS:
+        missing = [_FIELD_LABELS.get(f, f) for f in state.missing_fields()]
+        if not missing:
+            return "Sudah lengkap."
+        if len(missing) == 1:
+            return f"Tinggal satu lagi: {missing[0]}?"
+        # Grouped question: everything still needed is asked at once.
+        return "Tinggal beberapa ini: " + ", ".join(missing) + "."
+    if action == SHOW_CONFIRMATION:
+        return "Semua sudah kucatat. Cek dulu, kalau ada yang salah perbaiki."
+    if action == EXPLAIN_RESULT:
+        status = session.result_status
+        if status == STATUS_RECOMMENDATION:
+            return "Ini rekomendasinya."
+        if status == STATUS_NO_ACTION:
+            return "Barang ini belum perlu didiskon."
+        return "Ada yang perlu diperiksa dulu."
+    if action == OUT_OF_SCOPE:
+        return "Aku cuma bisa bantu soal harga diskon satu barang."
+    return "Ada kendala di sistem. Datamu tetap tersimpan."
+
+
+def _result_payload(state: Any, oracle: Any, model: Any) -> dict:
+    """Serialize one oracle outcome for the chat contract.
+
+    Prose is requested from the model only after the numbers exist, and its
+    absence degrades to numbers-only rather than failing the turn.
+    """
+    if oracle.status == STATUS_NO_ACTION:
+        return {
+            "status": "no_action",
+            "revision": state.revision,
+            "message": oracle.message,
+            "reassess_in_days": oracle.reassess_in_days,
+        }
+    if oracle.status == STATUS_INVALID:
+        return {
+            "status": "invalid_input",
+            "revision": state.revision,
+            "message": oracle.message,
+        }
+
+    normalized = {**state.to_dict(), "total_shelf_life": oracle.used_shelf_life}
+    for key in ("confirmed", "revision", "result_revision"):
+        normalized.pop(key, None)
+
+    explanation = ""
+    promo_copy = ""
+    try:
+        prose = model.write(normalized, to_engine_result(oracle))
+        explanation = prose["explanation"]
+        promo_copy = prose["promo_copy"]
+    except (ModelUnavailable, ModelContractError):
+        pass
+
+    recommendation = oracle.recommendation_dict()
+    return {
+        "status": "recommendation",
+        "revision": state.revision,
+        "normalized_input": normalized,
+        "recommendation": recommendation,
+        "explanation": explanation,
+        "promo_copy": promo_copy,
+        "preview": {
+            "item_name": normalized["item_name"],
+            "shop_name": normalized.get("shop_name") or "Tokomu",
+            "original_price": normalized["original_price"],
+            "deal_price": recommendation["recommended_price"],
+            "discount_percent": recommendation["discount_percent"],
+            "days_remaining": normalized["days_remaining"],
+            "stock": normalized["stock"],
+        },
+    }
+
+
+def _chat_response(session: Any, *, action: str, message: str) -> dict:
+    state = session.state
+    result = session.result
+    # A result is only exposed while its revision still matches the state.
+    if result is not None and result.get("revision") != state.revision:
+        result = None
+    return {
+        "session_id": session.session_id,
+        "action": action,
+        "assistant_message": message,
+        "state": state.to_dict(),
+        "missing_fields": state.missing_fields(),
+        "ambiguous_fields": [],
+        "result": result,
+    }
 
 
 def _normalize_display_names(data: dict[str, Any]) -> dict[str, Any]:
