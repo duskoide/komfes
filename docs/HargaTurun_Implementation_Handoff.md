@@ -2,8 +2,7 @@
 
 > **Document type:** living implementation-status + handoff document
 > **Last updated:** 2026-08-17
-> **Branch:** `feat/pricing-engine` (pushed to `origin`; compare with `main` for the current commit count)
-> **Author of code so far:** `buahkol <illonanasywa710@gmail.com>`
+> **Branch:** `feat/backend-integration` (working tree; not committed or pushed)
 > **Purpose:** give anyone picking this up the full context — what the repo is,
 > what has been built and *why it behaves the way it does*, the constraints
 > discovered along the way, the findings that affect the demo, and exactly what
@@ -16,15 +15,7 @@ change the demo)**, and **§7 (what's next)**.
 
 ## 1. Where the project stands in one paragraph
 
-At this branch's starting point the shared repository was **specification only**.
-This branch adds the first two engineering deliverables from the Fine-Tuning
-Plan's execution order (§9 of `HargaTurun_FineTuning_Plan.md`): the
-**deterministic pricing oracle** (`pricing.py`, every number in the system) and
-the **frozen model I/O contracts** (`schemas.py`, the parse/write tasks the
-training data and the API both agree on). Both are pure-stdlib and fully tested.
-The model itself, FastAPI layer, dataset generator, and gold test set are **not
-started on this branch** — see §7. A separate `frontend` branch contains the
-Flutter UI; it is not integrated with this deterministic core yet.
+The deterministic pricing oracle and frozen model I/O contracts from `feat/pricing-engine` are now integrated with the latest Flutter design from the `frontend` branch. This branch adds a FastAPI orchestration layer, an OpenAI-compatible llama.cpp client, SQLite persistence for shops/deals/claims, demo OTP/session endpoints, HTTP-backed Flutter repositories, a Flutter web/PWA runner, and end-to-end tests. Structured input remains usable when the model is down (numeric recommendation with empty prose); free-text parsing still requires the model server.
 
 ---
 
@@ -182,6 +173,17 @@ Highlights worth knowing:
   (Bakery, Rp20 000, cost 10 000, 30 units, 1 day, shelf 4, 5/day) → **45% off,
   Rp11 000**, so future formula edits can't silently drift.
 
+### 3.4 Integration layer (current branch)
+
+- `backend/hargaturun/api.py` exposes recommendation, demo auth/shop, deal, claim, and redemption endpoints.
+- `backend/hargaturun/database.py` initializes SQLite and wraps committed sessions/atomic `BEGIN IMMEDIATE` claim transactions.
+- `backend/hargaturun/model_client.py` calls the OpenAI-compatible llama.cpp server using frozen parse/write prompts and validates every response.
+- `frontend/lib/services/api_client.dart` and the three HTTP repositories replace the in-memory mocks without changing screen state machines.
+- `frontend/web/` makes the current design runnable as the browser/PWA deliverable.
+- `backend/tests/test_api.py` and `frontend/test/repository_test.dart` cover the cross-layer contracts.
+
+**Validation:** `63` backend tests pass, `3` Dart repository tests pass, the Uvicorn HTTP smoke returns the expected Rp11.000 oracle result, and Flutter web builds in release mode. Flutter analysis has no errors; it still reports 3 pre-existing warnings and style/deprecation info in untouched UI files.
+
 ---
 
 ## 4. Environment constraints discovered (important for whoever runs this)
@@ -320,10 +322,16 @@ Structured input ─────────────────────
 
 ---
 
-## 7. What comes next (in order)
+## 7. What comes next
 
-Following `HargaTurun_FineTuning_Plan.md` §9 "Deliverables and execution order".
-Done: #1 (pricing) and #2 (schemas). Remaining, in dependency order:
+The frontend/backend/pricing wiring is implemented. Remaining product/model work:
+
+1. Run the real fine-tuned llama.cpp artifact and validate both parse and write contracts against it.
+2. Replace the demo OTP (`123456`) with a provider only if auth remains in scope; the current endpoint is intentionally demo-only.
+3. Add deployment packaging (full Compose/static web serving) once the final model artifact is available.
+4. Complete the gold set, dataset generator, training, and evaluation deliverables described below.
+
+Following `HargaTurun_FineTuning_Plan.md` §9, the remaining model deliverables are:
 
 | # | Deliverable | Can it be built+verified on *this* machine? | Notes / decisions needed |
 |---|---|---|---|
@@ -335,15 +343,7 @@ Done: #1 (pricing) and #2 (schemas). Remaining, in dependency order:
 | 8 | **Adapter / Q8_0 / Q4_K_M eval reports** | No. | All §4 gates must pass; don't claim percentages until measured. |
 | 9 | **Final local server smoke test** | Needs the 8 GB laptop + fine-tuned GGUF. | Record artifact hash + API result. |
 
-**In parallel with the data/model track**, the app can be built (needed for the
-penyisihan MVP regardless of model progress):
-
-- **API layer** — FastAPI `POST /api/recommend` wiring `pricing.compute` +
-  `schemas` + a model-client seam (with the §5.4.2 degradation path). *Writable
-  here, but not runnable until pip/FastAPI is bootstrapped.* The **structured-input
-  path needs no model** and is fully demoable on its own.
-- **Frontend integration** — replace the Flutter branch's mock recommendation
-  repository with the eventual API and align float/default-confirmation fields.
+**The application integration track is complete on this branch:** FastAPI wires `pricing.compute` and `schemas` through a validated model-client seam, the structured-input numbers-only fallback is tested, SQLite implements the final marketplace lifecycle, and the Flutter repositories call those endpoints. The next application step is deployment packaging and live testing with the real GGUF artifact.
 
 ### Suggested immediate next step
 

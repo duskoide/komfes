@@ -1,23 +1,35 @@
-# HargaTurun deterministic core
+# HargaTurun backend
 
-Pure-Python pricing oracle and frozen model I/O contracts. The FastAPI orchestration layer will be developed on a separate backend branch.
+FastAPI orchestration around the deterministic pricing oracle, plus the minimal
+SQLite marketplace used by the current Flutter UI.
 
-| Module | Responsibility |
-|---|---|
-| `hargaturun/pricing.py` | **The oracle.** Every number: discount %, price, timing, projections, bounds, margin floor. Pure functions, no I/O — same input always yields the same output. Implements `docs/HargaTurun_Project_Spec.md` §9.5. |
-| `hargaturun/schemas.py` | Strict parse/write contracts and validators shared by training-data tooling, model evaluation, and the future API layer. |
-
-The oracle is the single source of truth for numbers, used in two places (write once,
-use twice): the production pricing authority behind `POST /api/recommend`, and the
-ground-truth generator for the fine-tuning dataset.
-
-## Running the tests
-
-The oracle is pure-stdlib, so its tests run with no dependencies installed:
+## Run
 
 ```bash
 cd backend
-python3 -m unittest discover -s tests -v
+uv sync --extra dev
+uv run hargaturun-api
 ```
 
-(They are also collected by `pytest` if you have it.)
+The API listens on `http://127.0.0.1:8000` by default. Useful environment values:
+
+- `HARGATURUN_DB=data/hargaturun.db`
+- `HARGATURUN_MODEL_URL=http://127.0.0.1:8080/v1`
+- `HARGATURUN_MODEL_NAME=hargaturun-qwen3.5-4b`
+- `HARGATURUN_DEMO_OTP=123456` (demo-only OTP; no SMS provider)
+- `HARGATURUN_TOKEN_SECRET=...` (set outside local demo use)
+- `HARGATURUN_CORS_ORIGINS=http://localhost:...` (comma-separated)
+
+Structured recommendations always use `pricing.compute()`. If the local model is
+unavailable only the prose fields degrade to empty strings; all numeric output
+still comes from the oracle. Free-text parsing requires the model server.
+
+## Test
+
+```bash
+cd backend
+uv run pytest -q
+```
+
+The suite covers deterministic pricing/model contracts and the API flow:
+recommend → publish → browse → claim → redeem → restart.

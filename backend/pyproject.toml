@@ -1,16 +1,21 @@
 [project]
 name = "hargaturun"
 version = "0.1.0"
-description = "HargaTurun deterministic pricing oracle and model contracts"
+description = "HargaTurun deterministic pricing oracle, API, and marketplace backend"
 readme = "README.md"
 requires-python = ">=3.11"
-# The deterministic core is deliberately dependency-free. The API layer is
-# developed separately and will declare its runtime dependencies on that branch.
-dependencies = []
+dependencies = [
+    "fastapi==0.116.1",
+    "uvicorn[standard]==0.35.0",
+]
+
+[project.scripts]
+hargaturun-api = "hargaturun.main:run"
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8",
+    "httpx==0.28.1",
+    "pytest==8.4.1",
 ]
 
 [build-system]

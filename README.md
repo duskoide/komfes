@@ -15,10 +15,7 @@ The system is deliberately **hybrid**:
 
 The model never does arithmetic. Python never writes prose.
 
-> **Document status:** This repository currently contains specifications plus a standalone LLM-server setup. The
-> flows below are the contract that the implementation must satisfy. Full-application `docker compose` instructions
-> belong in this file once the API and frontend land; see the [LLM server setup](docs/HargaTurun_LLM_Server_Setup.md)
-> for the current CUDA inference service.
+> **Document status:** The deterministic pricing core, FastAPI/SQLite backend, and latest Flutter UI are now integrated on `feat/backend-integration`. The local llama.cpp server remains optional for structured-input pricing and required for free-text parsing/generated prose. See the [implementation handoff](docs/HargaTurun_Implementation_Handoff.md) and [backend runbook](backend/README.md).
 
 ---
 
@@ -367,8 +364,7 @@ FastAPI ──HTTP──► local model server                      ▼
                                                           └──► data/hargaturun.db
 ```
 
-`docker compose up` starts frontend + API + model server (+ a mounted volume for the SQLite file in the final
-round). No database *service*, no queue, no worker, no scheduled task — by design and by competition rule.
+The current implementation provides FastAPI + SQLite under `backend/`, the Flutter web/PWA under `frontend/`, and the standalone llama.cpp service in `compose.llm.yml`. Run the API with `cd backend && uv sync --extra dev && uv run hargaturun-api`; run the UI browser-independently with `cd frontend && flutter run -d web-server --web-hostname 127.0.0.1 --web-port 3000 --dart-define=API_BASE_URL=http://127.0.0.1:8000`, then open `http://127.0.0.1:3000` in any browser.
 
 ---
 
