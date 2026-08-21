@@ -118,6 +118,7 @@ class Deal {
         'shop_name': shopName,
         'category': category.apiValue,
         'original_price': originalPrice,
+        if (cost != null) 'cost': cost,
         'deal_price': dealPrice,
         'discount_percent': discountPercent,
         'days_remaining': daysRemaining,

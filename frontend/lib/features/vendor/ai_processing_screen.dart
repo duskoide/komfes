@@ -199,4 +199,3 @@ class _AiProcessingScreenState extends ConsumerState<AiProcessingScreen> {
     );
   }
 }
-

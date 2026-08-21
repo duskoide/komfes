@@ -55,7 +55,7 @@ final verifyProvider = StateNotifierProvider<VerifyNotifier, AsyncValue<VerifyOu
   (ref) => VerifyNotifier(ref),
 );
 
-/// Klaim belum diambil milik semua deal vendor 
+/// Klaim belum diambil milik semua deal vendor
 final pendingClaimsProvider = FutureProvider.autoDispose<List<Claim>>((ref) async {
   final repo = ref.read(dealRepositoryProvider);
   final deals = await repo.listDeals();

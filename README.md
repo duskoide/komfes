@@ -5,7 +5,7 @@ Built for COMPFEST 18 — AI Innovation Challenge, *AI for the Backbone of the E
 
 A vendor describes at-risk food stock in everyday Indonesian. HargaTurun gathers only the missing facts, confirms what it understood, calls a deterministic pricing tool, and explains the resulting action. It is a **bounded, tool-backed chatbot**, not a general-purpose assistant.
 
-> **Implementation status on `main`:** the deterministic pricing oracle and its contract tests exist. The conversational orchestrator, chat API, and chat UI described here are the next implementation target. A base Qwen3.5-4B model may be used for development; no fine-tuned artifact is currently claimed.
+> **Implementation status:** the deterministic pricing oracle, strict model contracts, FastAPI/SQLite service, HTTP-backed Flutter web/PWA, and local Qwen llama.cpp baseline are implemented. The bounded multi-turn orchestrator, `POST /api/chat`, conversational chat UI, agent traces, and comparative agentic evaluation described below remain the next implementation target. The included base Qwen3.5-4B setup is for infrastructure validation; no fine-tuned artifact is claimed.
 
 ## Product promise
 
@@ -137,19 +137,37 @@ This is more than a raw zero-shot API call. See [`docs/HargaTurun_Agentic_Workfl
 | Path | Status |
 |---|---|
 | `backend/hargaturun/pricing.py` | Implemented deterministic pricing authority |
-| `backend/tests/test_pricing.py` | Implemented rule and invariant tests |
-| `backend/hargaturun/schemas.py` | Existing parse/write contracts; must evolve into conversational patch/write contracts |
-| Chat orchestrator and chat API | Planned |
-| Chat UI and structured cards | Planned |
+| `backend/hargaturun/api.py` | Implemented one-shot recommendation, demo auth/shop, deal, claim, and redemption API |
+| `backend/hargaturun/model_client.py` | Implemented validated OpenAI-compatible parse/write client with one repair attempt |
+| `backend/hargaturun/schemas.py` | Implemented strict one-shot parse/write contracts; must evolve into conversational patch/write contracts |
+| `frontend/` | Implemented Flutter web/PWA baseline using HTTP-backed repositories and structured cards |
+| `scripts/run-llama-server.sh` | Implemented local CUDA llama.cpp launcher for the temporary base GGUF |
+| Multi-turn chat orchestrator, `POST /api/chat`, and chat UI | Planned |
 | Full application Docker Compose | Planned |
 | Agentic evaluation report | Planned |
 
-Run the implemented core tests:
+For a complete CUDA-enabled local stack, install Docker Compose and the NVIDIA
+Container Toolkit, then run:
+
+```bash
+docker compose up --build
+```
+
+The first run downloads and verifies the temporary base Qwen GGUF when it is
+absent, builds the FastAPI and release Flutter containers with their pinned
+dependencies, and serves the app at `http://127.0.0.1:3000`. Model and SQLite
+data persist in named volumes. See [`backend/README.md`](backend/README.md) for
+configuration, native-development commands, and the base-model caveat.
+
+Run the implemented backend suite:
 
 ```bash
 cd backend
-python3 -m unittest discover -s tests -v
+uv sync --extra dev
+uv run pytest -q
 ```
+
+See [`backend/README.md`](backend/README.md) for the model/API runbook and fast Flutter preview commands.
 
 ## Required submission evidence
 

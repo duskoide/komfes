@@ -16,13 +16,13 @@ build/
 *.freezed.dart
 *.mocks.dart
 
-# ---------- Platform folders (regenerate via `flutter create .`) ----------
+# ---------- Platform folders ----------
+# HargaTurun ships as Flutter web/PWA; native runners remain regenerable.
 android/
 ios/
 linux/
 macos/
 windows/
-web/
 
 # ---------- Coverage & test ----------
 coverage/

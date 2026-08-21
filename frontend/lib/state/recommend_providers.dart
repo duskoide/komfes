@@ -5,7 +5,7 @@ import '../models/recommendation.dart';
 import '../services/app_exception.dart';
 import 'repository_providers.dart';
 
-/// Menampung draft input + hasil terakhir 
+/// Menampung draft input + hasil terakhir
 class RecommendFlowState {
   const RecommendFlowState({
     this.draft,

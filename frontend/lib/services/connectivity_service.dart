@@ -1,6 +1,6 @@
 import 'dart:async';
 
-/// Abstraksi status koneksi. 
+/// Abstraksi status koneksi.
 abstract class ConnectivityService {
   Stream<bool> get onlineStatusStream;
   bool get isOnlineNow;

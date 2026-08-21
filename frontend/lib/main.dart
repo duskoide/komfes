@@ -4,9 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app.dart';
 
-/// Frame HP simulasi hanya untuk preview di browser desktop saat development.
-/// Di build release, dan saat jalan di perangkat Android sungguhan, ini mati.
-const bool kUseDevicePreview = kDebugMode && kIsWeb;
+/// Frame HP simulasi untuk preview di browser desktop.
+///
+/// Debug web mengaktifkannya secara default. Build release dapat mengaktifkannya
+/// dengan `--dart-define=DEVICE_PREVIEW=true`, sehingga demo tidak perlu memuat
+/// ratusan modul debug sebelum frame pertama.
+const bool kUseDevicePreview =
+    kIsWeb &&
+    (kDebugMode ||
+        bool.fromEnvironment('DEVICE_PREVIEW', defaultValue: false));
 
 void main() {
   runApp(

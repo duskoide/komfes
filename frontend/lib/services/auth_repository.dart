@@ -1,56 +1,65 @@
-import 'dart:math';
+import '../models/enums.dart';
 import '../models/user.dart';
+import 'api_client.dart';
 import 'app_exception.dart';
 
 abstract class AuthRepository {
-  /// POST /api/auth/otp/request
   Future<void> requestOtp(String fullPhone);
-
-  /// POST /api/auth/otp/verify
   Future<UserSession> verifyOtp(String fullPhone, String otp);
-
-  /// PATCH/POST setup toko vendor baru (bagian dari S-06).
   Future<ShopProfile> saveShopProfile(ShopProfile profile);
 }
 
-class MockAuthRepository implements AuthRepository {
-  final _rand = Random();
-  int _attempts = 0;
+class HttpAuthRepository implements AuthRepository {
+  const HttpAuthRepository(this._api);
+
+  final ApiClient _api;
 
   @override
   Future<void> requestOtp(String fullPhone) async {
-    await Future.delayed(const Duration(milliseconds: 900));
-    _attempts = 0;
-    // Mock selalu sukses mengirim; kode "benar" untuk demo selalu 123456.
+    final response = await _api.post(
+      '/api/auth/otp/request',
+      body: {'phone': fullPhone},
+    );
+    if (!response.isSuccess) throw OtpException(response.message);
   }
 
   @override
   Future<UserSession> verifyOtp(String fullPhone, String otp) async {
-    await Future.delayed(const Duration(milliseconds: 900));
-    _attempts++;
-    if (_attempts > 5) {
-      throw const OtpException('Terlalu banyak percobaan. Coba lagi dalam 5 menit.');
-    }
-    if (otp != '123456') {
-      throw const OtpException('Kode salah.');
-    }
-    final isNew = !_knownPhones.contains(fullPhone);
-    _knownPhones.add(fullPhone);
+    final response = await _api.post(
+      '/api/auth/otp/verify',
+      body: {'phone': fullPhone, 'otp': otp},
+    );
+    if (!response.isSuccess) throw OtpException(response.message);
+
+    final json = response.object;
+    final token = json['token'] as String;
+    _api.bearerToken = token;
     return UserSession(
-      phone: fullPhone,
-      token: 'mock-token-${_rand.nextInt(999999)}',
-      isNewVendor: isNew,
-      shop: isNew ? null : _savedShop,
+      phone: json['phone'] as String,
+      token: token,
+      isNewVendor: json['is_new_vendor'] as bool,
+      shop: json['shop'] == null
+          ? null
+          : _shopFromJson((json['shop'] as Map).cast<String, dynamic>()),
     );
   }
 
-  final Set<String> _knownPhones = {};
-  ShopProfile? _savedShop;
-
   @override
   Future<ShopProfile> saveShopProfile(ShopProfile profile) async {
-    await Future.delayed(const Duration(milliseconds: 600));
-    _savedShop = profile;
-    return profile;
+    final response = await _api.post('/api/shops', body: profile.toJson());
+    if (!response.isSuccess) throw RequestFailedException(response.message);
+    return _shopFromJson(response.object);
+  }
+
+  ShopProfile _shopFromJson(Map<String, dynamic> json) {
+    final businessTypeName = json['business_type'] as String;
+    return ShopProfile(
+      shopName: json['shop_name'] as String,
+      businessType: BusinessType.values.firstWhere(
+        (type) => type.name == businessTypeName,
+        orElse: () => BusinessType.warungToko,
+      ),
+      shortAddress: json['short_address'] as String?,
+    );
   }
 }

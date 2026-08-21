@@ -1,21 +1,76 @@
-# HargaTurun conversational-agent core
+# HargaTurun backend
 
-Pure-Python pricing oracle and model I/O contracts. The main-branch product target is a bounded conversational orchestrator that maintains validated state, requires confirmation, and exposes this oracle through a typed pricing tool.
+FastAPI orchestration around the deterministic pricing oracle, plus the minimal
+SQLite marketplace used by the current Flutter UI.
 
-| Module | Responsibility |
-|---|---|
-| `hargaturun/pricing.py` | **The oracle.** Every number: discount %, price, timing, projections, bounds, margin floor. Pure functions, no I/O — same input always yields the same output. Implements `docs/HargaTurun_Project_Spec.md` §9.5. |
-| `hargaturun/schemas.py` | Existing strict parse/write contracts and validators. These are the baseline for the planned conversational patch/write contracts; they must be revised without weakening numerical-faithfulness checks. |
+## Full-stack Compose (recommended)
 
-The oracle is the single source of truth for numbers behind the planned `PricingTool`. The conversational model must never calculate, override, or silently alter these values.
+Prerequisites: Docker Engine, Docker Compose v2, the NVIDIA Container Toolkit,
+and enough free space for the approximately 2.6 GB base GGUF. Then run:
 
-## Running the tests
+```bash
+docker compose up --build
+```
 
-The oracle is pure-stdlib, so its tests run with no dependencies installed:
+The first run creates Docker volumes, downloads the temporary base
+`Qwen3.5-4B Q4_K_M` GGUF only when absent, verifies its pinned SHA-256, starts
+the CUDA llama.cpp server, installs/builds the backend and Flutter dependencies,
+and waits for health checks before exposing the UI.
+
+- Flutter web: `http://127.0.0.1:3000`
+- FastAPI: `http://127.0.0.1:8000`
+- llama.cpp: `http://127.0.0.1:8080/v1`
+- demo OTP: `123456`
+
+The model and SQLite database persist in named volumes. Rebuilding containers
+does not redownload the model. To stop the stack, use `docker compose down`.
+Do **not** add `-v` unless you intentionally want to delete both persisted
+volumes. Override ports, the public API URL, model URL/hash, or secrets through
+the `HARGATURUN_*` variables documented in `compose.yml`.
+
+## Native development
+
+Start the local base-model server from the repository root. The launcher detects
+LM Studio's bundled CUDA llama.cpp runtime and uses the ignored GGUF under
+`models/`:
+
+```bash
+./scripts/run-llama-server.sh
+```
+
+Then start the API in a second terminal:
 
 ```bash
 cd backend
-python3 -m unittest discover -s tests -v
+uv sync --extra dev
+uv run hargaturun-api
 ```
 
-(They are also collected by `pytest` if you have it.)
+The model endpoint defaults to `http://127.0.0.1:8080/v1`; the API defaults to
+`http://127.0.0.1:8000`. Useful environment values:
+
+- `HARGATURUN_DB=data/hargaturun.db`
+- `HARGATURUN_MODEL_URL=http://127.0.0.1:8080/v1`
+- `HARGATURUN_MODEL_NAME=hargaturun-qwen3.5-4b`
+- `HARGATURUN_DEMO_OTP=123456` (demo-only OTP; no SMS provider)
+- `HARGATURUN_TOKEN_SECRET=...` (set outside local demo use)
+- `HARGATURUN_CORS_ORIGINS=http://localhost:...` (comma-separated)
+
+The current `Qwen3.5-4B Q4_K_M` is an infrastructure baseline, not the final
+fine-tuned competition artifact. The model client validates every parse/write
+response. It deterministically normalizes confirmation bookkeeping and performs
+one validator-guided repair attempt for other contract violations.
+
+Structured recommendations always use `pricing.compute()`. If the local model is
+unavailable only the prose fields degrade to empty strings; all numeric output
+still comes from the oracle. Free-text parsing requires the model server.
+
+## Test
+
+```bash
+cd backend
+uv run pytest -q
+```
+
+The suite covers deterministic pricing/model contracts and the API flow:
+recommend → publish → browse → claim → redeem → restart.

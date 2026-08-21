@@ -6,9 +6,9 @@
 
 ## 1. Current state
 
-The `main` branch currently contains a tested deterministic pricing core and strict model parse/write contracts. It does **not** yet contain the bounded conversational orchestrator, `POST /api/chat`, chat UI, agent trace, complete Docker Compose stack, or measured direct-chat comparison specified by the new plan.
+This branch adds a working one-shot baseline around the existing pricing core: FastAPI/SQLite endpoints, an OpenAI-compatible parse/write model client, and an HTTP-backed Flutter web/PWA. It still does **not** contain the bounded multi-turn orchestrator, `POST /api/chat`, conversational chat UI, agent trace, complete Docker Compose stack, or measured direct-chat comparison specified by the new plan.
 
-The product direction has changed from one-shot free-text parsing plus a form to a **constrained multi-turn pricing copilot**. The pricing formula and safety boundary remain unchanged.
+The product direction has changed from this one-shot baseline to a **constrained multi-turn pricing copilot**. The baseline remains useful and runnable, but should not be described as the completed agentic workflow. The pricing formula and safety boundary remain unchanged.
 
 Do not describe planned conversational behavior as implemented until the corresponding code and tests land.
 
