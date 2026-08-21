@@ -288,28 +288,11 @@ class _RecommendationResultScreenState extends ConsumerState<RecommendationResul
               ),
       ),
       bottomNavigationBar: StickyBottomBar(
-        secondaryChild: Row(
-          children: [
-            Expanded(
-              child: TextButton(
-                onPressed: () {
-                  context.pushReplacement(RoutePaths.vendorCheckItem, extra: input);
-                },
-                child: const Text('Ubah Input'),
-              ),
-            ),
-            const SizedBox(width: AppSpacing.sm),
-            Expanded(
-              // §3.2 SRS Penyisihan: hasil harus punya aksi "Hitung Lagi"
-              // — mengulang dengan input yang sama, tanpa mengetik ulang.
-              child: TextButton(
-                onPressed: () {
-                  context.pushReplacement(RoutePaths.vendorProcessing, extra: input);
-                },
-                child: const Text('Hitung Lagi'),
-              ),
-            ),
-          ],
+        secondaryChild: TextButton(
+          onPressed: () {
+            context.pushReplacement(RoutePaths.vendorCheckItem, extra: input);
+          },
+          child: const Text('Ubah Input'),
         ),
         child: SizedBox(
           width: double.infinity,
