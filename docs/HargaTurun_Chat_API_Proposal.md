@@ -1,6 +1,8 @@
 # `POST /api/chat` — proposed wire contract
 
-> **Status:** PROPOSAL from the frontend side, awaiting backend confirmation.
+> **Status:** IMPLEMENTED. Kept as the contract record; the authoritative
+> description of live behaviour is `backend/README.md`.
+> Originally written as a frontend-side proposal to unblock parallel work.
 > **Purpose:** unblock parallel work on issue #4. The Agentic Workflow Plan
 > specifies state, action policy and the tool contract, but not the HTTP
 > request/response shape. This document proposes one so the chat UI and the
@@ -12,6 +14,18 @@
 Anything in this file may be changed by the backend owner. The frontend keeps
 all mapping in `frontend/lib/services/chat_repository.dart`, so a change costs
 one file rather than the whole screen.
+
+### Deltas between this proposal and what shipped
+
+The shape below was implemented unchanged. Two additions and one gap:
+
+* `413` is returned for an oversized body and `429` when rate limited; both come
+  from middleware and apply before the handler runs.
+* `reset` mints a **new** `session_id` rather than clearing the existing one, so
+  a stale id can never be reused.
+* `ambiguous_fields` is always empty. The field is part of the contract, but
+  filling it requires the parse contract to express model uncertainty, which it
+  does not yet.
 
 ## Endpoint
 
