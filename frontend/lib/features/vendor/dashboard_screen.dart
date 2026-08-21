@@ -188,7 +188,7 @@ class _CheckItemButton extends StatelessWidget {
     return SizedBox(
       width: double.infinity,
       child: ElevatedButton.icon(
-        onPressed: () => context.push(RoutePaths.vendorCheckItem),
+        onPressed: () => context.push(RoutePaths.vendorChat),
         icon: const Icon(Icons.search_rounded),
         label: const Padding(
           padding: EdgeInsets.symmetric(vertical: AppSpacing.sm),

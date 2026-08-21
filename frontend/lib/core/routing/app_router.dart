@@ -15,6 +15,7 @@ import '../../features/shell/vendor_shell.dart';
 import '../../features/splash/splash_screen.dart';
 import '../../features/vendor/active_deals_screen.dart';
 import '../../features/vendor/ai_processing_screen.dart';
+import '../../features/vendor/chat_screen.dart';
 import '../../features/vendor/check_item_screen.dart';
 import '../../features/vendor/confirm_data_screen.dart';
 import '../../features/vendor/dashboard_screen.dart';
@@ -60,6 +61,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: RoutePaths.setupShop, builder: (context, state) => const SetupShopScreen()),
 
       // === Vendor sub-halaman (di atas shell, tanpa bottom nav) ===
+      GoRoute(path: RoutePaths.vendorChat, builder: (context, state) => const ChatScreen()),
       GoRoute(
         path: RoutePaths.vendorCheckItem,
         builder: (context, state) => CheckItemScreen(prefill: state.extra as ItemInputDraft?),

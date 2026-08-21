@@ -15,6 +15,7 @@ class RoutePaths {
   static const vendorProfile = '/vendor/profile'; // V-13
 
   // Vendor sub-halaman (push di atas shell)
+  static const vendorChat = '/vendor/chat';
   static const vendorCheckItem = '/vendor/check-item'; // V-02
   static const vendorConfirm = '/vendor/check-item/confirm'; // V-03
   static const vendorProcessing = '/vendor/check-item/processing'; // V-04
