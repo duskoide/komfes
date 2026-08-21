@@ -11,7 +11,7 @@ RUN flutter build web --release \
     --dart-define=API_BASE_URL=${API_BASE_URL} \
     --dart-define=DEVICE_PREVIEW=${DEVICE_PREVIEW}
 
-FROM nginx:1.27.5-alpine
+FROM docker.io/nginx:1.27.5-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/build/web /usr/share/nginx/html
 

@@ -2,7 +2,7 @@ name: hargaturun
 
 services:
   model-init:
-    image: curlimages/curl:8.12.1
+    image: docker.io/curlimages/curl:8.12.1
     user: "0:0"
     entrypoint: ["/bin/sh", "-ec"]
     environment:
@@ -107,7 +107,7 @@ services:
     stop_grace_period: 30s
 
   llm-ready:
-    image: curlimages/curl:8.12.1
+    image: docker.io/curlimages/curl:8.12.1
     depends_on:
       llm-server:
         condition: service_started
