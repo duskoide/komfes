@@ -33,6 +33,7 @@ from .consultation import (
     validate_patch,
 )
 from .database import Database
+from .limits import BodySizeLimitMiddleware, RateLimitMiddleware
 from .model_client import ModelContractError, ModelUnavailable, OpenAICompatibleModel, TextModel
 from .pricing import (
     CATEGORIES,
@@ -135,6 +136,17 @@ def create_app(
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
+    )
+    # Dipasang setelah CORS supaya penolakan tetap membawa header CORS dan
+    # browser bisa membaca statusnya, bukan melihatnya sebagai kegagalan jaringan.
+    app.add_middleware(
+        RateLimitMiddleware,
+        limit=int(os.getenv("HARGATURUN_RATE_LIMIT", "30")),
+        window_seconds=float(os.getenv("HARGATURUN_RATE_WINDOW", "60")),
+    )
+    app.add_middleware(
+        BodySizeLimitMiddleware,
+        max_bytes=int(os.getenv("HARGATURUN_MAX_BODY_BYTES", str(64 * 1024))),
     )
 
     @app.get("/api/health")
@@ -687,7 +699,14 @@ def _cors_origins() -> list[str]:
     configured = os.getenv("HARGATURUN_CORS_ORIGINS")
     if configured:
         return [origin.strip() for origin in configured.split(",") if origin.strip()]
-    return ["*"]
+    # Default lokal, bukan wildcard: origin produksi harus dinyatakan eksplisit
+    # lewat HARGATURUN_CORS_ORIGINS.
+    return [
+        "http://localhost:5555",
+        "http://127.0.0.1:5555",
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+    ]
 
 
 def _now() -> str:
