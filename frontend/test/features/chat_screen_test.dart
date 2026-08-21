@@ -7,7 +7,6 @@ import 'package:hargaturun/core/theme/app_theme.dart';
 import 'package:hargaturun/features/vendor/chat_screen.dart';
 import 'package:hargaturun/models/chat.dart';
 import 'package:hargaturun/services/app_exception.dart';
-import 'package:hargaturun/state/chat_providers.dart';
 import 'package:hargaturun/state/repository_providers.dart';
 
 import '../support/chat_fixtures.dart';
