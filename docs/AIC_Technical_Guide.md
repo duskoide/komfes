@@ -1,9 +1,6 @@
 # AI Innovation Challenge (AIC) — Panduan Teknis
 
-> **Sumber:** diekstrak dari [`AI_Innovation_Challenge.md`](./AI_Innovation_Challenge.md)
-> (bagian *Teknis & Kriteria* dan *Kriteria Penilaian*).
-> Dokumen ini hanya memuat aspek teknis kompetisi. Untuk aturan umum, pendaftaran, jadwal,
-> dan kontak, lihat dokumen rulebook lengkap.
+> **Sumber:** diekstrak dari rulebook resmi `AI_Innovation_Challenge.md`, yang tidak disimpan dalam repository ini. Simpan salinan sumber resmi dan bukti klarifikasi panitia bersama artefak submisi.
 > Diselenggarakan oleh **COMPFEST 18** · Kolaborasi dengan **WIZ.AI**.
 
 ---
@@ -111,8 +108,18 @@ Aturan teknis deliverables:
 - **Dataset** boleh dari sumber publik yang sudah tersedia atau data sintetik. Namun penggunaan
   model (karya pihak luar maupun bukan), arsitektur sistem, hingga fitur **harus dilakukan dan
   dijelaskan bersamaan preprocessing-nya selama periode lomba**.
-- Boleh memakai **model API** dan **pre-trained model**; model **wajib di-*fine tune*** sesuai
-  inovasi fitur per tim.
+- Boleh memakai **model API** dan **pre-trained model**; rulebook asli menyatakan model **wajib di-*fine tune*** sesuai inovasi fitur per tim.
+
+### Klarifikasi panitia — kustomisasi model AI
+
+Panitia kemudian mengklarifikasi bahwa tujuan aturan di atas adalah mewajibkan **kustomisasi** agar peserta tidak sekadar menggunakan model mentah melalui panggilan API *zero-shot*. Selain parameter fine-tuning seperti LoRA/QLoRA, pemenuhan syarat diperbolehkan melalui adaptasi tingkat lanjut yang relevan, antara lain:
+
+- Retrieval-Augmented Generation (RAG);
+- Agentic Workflow / AI Agents;
+- Tool Calling / Function Calling;
+- training model pendukung yang terintegrasi dengan Foundation Model.
+
+HargaTurun memilih jalur **Agentic Workflow**: model memperbarui state percakapan secara terstruktur, backend memvalidasi dan meminta konfirmasi, pricing tool deterministik menghitung seluruh angka, lalu output bahasa divalidasi. Ini adalah interpretasi proyek atas pengumuman; tim tetap harus menyimpan bukti pengumuman asli dan sebaiknya memperoleh konfirmasi tertulis panitia atas arsitektur spesifik sebelum submisi.
 
 ---
 

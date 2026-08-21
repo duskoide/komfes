@@ -3,7 +3,7 @@
 > **Status:** Planned enhancement after a completed, working [Penyisihan MVP](HargaTurun_Penyisihan_SRS.md)
 > **Scope:** Minimal vendor-to-consumer deal lifecycle
 > **Not an organizer-mandated feature list:** AIC defines the final as a 10-hour iterative hackathon. This document is the team's proposed, prioritized expansion—not a claim that all features are required by the organizer.
-> **Companion documents:** [Penyisihan SRS](HargaTurun_Penyisihan_SRS.md), [Project Spec](HargaTurun_Project_Spec.md), [Fine-Tuning Plan](HargaTurun_FineTuning_Plan.md)
+> **Companion documents:** [Penyisihan SRS](HargaTurun_Penyisihan_SRS.md), [Project Spec](HargaTurun_Project_Spec.md), [Agentic Workflow Plan](HargaTurun_Agentic_Workflow_Plan.md)
 
 ## 1. Purpose and delivery rule
 
@@ -14,7 +14,7 @@ Vendor receives recommendation -> publishes it -> consumer browses it
 -> consumer claims one unit -> vendor redeems the claim
 ```
 
-It starts only from the preliminary MVP's existing, verified core: model-assisted parsing/text, deterministic pricing, and the business recommendation screen. The final must remain locally demoable and synchronous. The organizer's final has a 10-hour hackathon constraint, so each phase below is independently demonstrable; do not start a later phase until the prior phase works.
+It starts only from the preliminary MVP's existing, verified core: bounded conversational intake, explicit confirmation, deterministic pricing-tool use, and the business recommendation screen. The final must remain locally demoable and synchronous. The organizer's final has a 10-hour hackathon constraint, so each phase below is independently demonstrable; do not start a later phase until the prior phase works.
 
 ## 2. Scope
 
@@ -79,18 +79,20 @@ Claims reserve stock at claim time. Redemption confirms collection; it must not 
 
 ```text
 Browser SPA
-  |-- /business --> FastAPI --> local fine-tuned model server
-  |                    |             (existing Penyisihan core)
-  |                    +--> pricing.py
+  |-- /business --> FastAPI --> local model server
+  |                    |             (constrained conversational agent)
+  |                    +--> conversation state/validators
+  |                    +--> PricingTool -> pricing.py
   |                    +--> SQLite file
   |
   +-- /deals -----> FastAPI --> SQLite file
 ```
 
-The model server and pricing engine retain exactly the preliminary responsibility split:
+The conversational workflow and pricing engine retain exactly the preliminary responsibility split:
 
-- Fine-tuned model: free-text parsing, explanation, promo copy.
-- Python engine: all arithmetic, bounds, timing, projections, and computed deal data.
+- Local model: propose structured state patches and generate faithful Indonesian language.
+- Orchestrator: own state, confirmation, transition guards, tool routing, validation, and bounded repair.
+- Python pricing tool: own all arithmetic, bounds, timing, projections, and computed deal data.
 
 SQLite is the only new persistent dependency. It is accessed through Python's standard `sqlite3`; no separate database service is required. The application remains local and uses Docker Compose to run the frontend, API, and model server.
 
@@ -98,9 +100,9 @@ SQLite is the only new persistent dependency. It is accessed through Python's st
 
 ### 6.1 Existing preliminary components
 
-- **Business recommendation screen:** preserves the input, confirmation, safety, and no-action behavior from the Penyisihan SRS.
-- **Model client/server:** unchanged core inference, static parameters.
-- **Pricing engine:** unchanged pure calculation authority. Publication only receives already-computed, validated deal data.
+- **Business consultation screen:** preserves the chat, state correction, confirmation, safety, and no-action behavior from the Penyisihan SRS.
+- **Model/orchestrator:** unchanged constrained inference, static parameters, explicit state, and tool gates.
+- **Pricing tool:** unchanged pure calculation authority. Publication only receives already-computed, validated deal data.
 
 ### 6.2 New API/deal module
 

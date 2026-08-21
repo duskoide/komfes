@@ -1,10 +1,10 @@
 # HargaTurun — LLM Server Setup
 
-> **Scope:** local model inference server only  
-> **Target machine:** NVIDIA GeForce RTX 4060 Laptop GPU (8 GB VRAM), 20 GB system RAM, Linux  
-> **Runtime:** CUDA-enabled `llama.cpp` in Docker Compose  
-> **Model:** fine-tuned Qwen3.5-4B, exported as GGUF `Q4_K_M`  
-> **Not covered:** dataset generation, Unsloth installation, BF16 LoRA training, GGUF export, FastAPI, frontend, or the pricing engine
+> **Scope:** local model inference server only
+> **Target machine:** NVIDIA GeForce RTX 4060 Laptop GPU (8 GB VRAM), 20 GB system RAM, Linux
+> **Runtime:** CUDA-enabled `llama.cpp` in Docker Compose
+> **Model:** evaluated Qwen3.5-4B GGUF `Q4_K_M` (base model is valid for the selected agentic-workflow route; use a fine-tuned artifact only if one is actually trained and evaluated)
+> **Not covered:** conversational orchestrator, state validation, evaluation suite, FastAPI, frontend, or the pricing tool
 
 This guide starts one OpenAI-compatible model server at `http://127.0.0.1:8080/v1`. It is deliberately independent of the Python environment used for Unsloth. An existing Unsloth installation is only relevant when producing the fine-tuned GGUF artifact; the inference container does not import or install Unsloth.
 
@@ -23,7 +23,7 @@ llama.cpp CUDA server
           +-- all model layers on the RTX 4060
 ```
 
-The server is configured for HargaTurun's short, synchronous, text-only interaction. It does not load the vision projector, use the model's 262K maximum context, expose agent tools, or provide a public web UI.
+The server is configured for HargaTurun's short, synchronous, text-only turns. Agent actions and pricing-tool routing live in FastAPI, not inside llama.cpp. The server does not load the vision projector, use the model's 262K maximum context, expose tools directly, or provide a public web UI.
 
 ## 2. Fixed runtime profile
 
@@ -83,17 +83,15 @@ models/hargaturun-qwen3.5-4b-q4_k_m.gguf
 
 The `models/` directory is intentionally ignored by Git because model files are too large for the repository.
 
-### 4.1 Use the fine-tuned Unsloth export
+### 4.1 Use an evaluated artifact
 
-If Unsloth has already exported the merged fine-tuned model as `Q4_K_M`, copy or move that GGUF to the expected path and filename:
+Place the evaluated base or genuinely fine-tuned `Q4_K_M` GGUF at the expected path:
 
 ```bash
-cp /path/to/exported-model.Q4_K_M.gguf models/hargaturun-qwen3.5-4b-q4_k_m.gguf
+cp /path/to/evaluated-model.Q4_K_M.gguf models/hargaturun-qwen3.5-4b-q4_k_m.gguf
 ```
 
-Replace `/path/to/exported-model.Q4_K_M.gguf` with the actual exported file. A Transformers directory containing `.safetensors` is not directly loadable by `llama-server`; the server artifact must be GGUF.
-
-Keep the training adapter, training configuration, evaluation report, and pre-quantization export separately as fine-tuning evidence. The server itself needs only the final GGUF.
+A Transformers directory containing `.safetensors` is not directly loadable by `llama-server`; the server artifact must be GGUF. Record whether the file is base or fine-tuned, its source/license, evaluation report, and SHA-256. Never describe a base file as fine-tuned.
 
 ### 4.2 Optional baseline-only download
 
@@ -105,7 +103,7 @@ curl --fail --location --progress-bar \
   https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf
 ```
 
-This downloaded model is only a server baseline. It does **not** satisfy the competition requirement that HargaTurun use its genuinely fine-tuned model. Replace it with the team's exported artifact before final evaluation or recording.
+This downloaded model is an honest base-model artifact. It can be the runtime model for the selected agentic-workflow adaptation route, but it does not by itself prove customization. The submission evidence must demonstrate the implemented orchestrator, state, pricing-tool calls, validators, traces, and baseline comparison.
 
 ### 4.3 Record artifact identity
 
@@ -356,7 +354,7 @@ The most useful values are prompt tokens/second, predicted tokens/second, active
 
 ## 11. Acceptance checks
 
-Do not lock the image, model, or settings until all checks pass with the final fine-tuned GGUF:
+Do not lock the image, model, or settings until all checks pass with the exact submission GGUF:
 
 - [ ] `/health` returns HTTP 200 after startup.
 - [ ] Startup logs identify CUDA and Qwen3.5 correctly.
