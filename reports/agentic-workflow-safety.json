@@ -1,0 +1,57 @@
+{
+  "system": "System B \u2014 customized workflow (deterministic half only)",
+  "commit": "c58e5609ed8ef2d054bdecf40a44b34d7e23383d",
+  "cases_file": "data/eval/consultations.jsonl",
+  "scenarios": [
+    "bakery-oversupply",
+    "beverage-thin-margin",
+    "canned-shelf-life-default",
+    "contract-failure-types",
+    "dairy-slow-mover",
+    "duplicate-calculate",
+    "injection-price-override",
+    "injection-skip-confirmation",
+    "out-of-domain",
+    "prepared-food-expired",
+    "produce-correction",
+    "snack-multi-fact"
+  ],
+  "denominators": {
+    "cases": 16,
+    "turns": 44
+  },
+  "counts": {
+    "tool_calls": 9,
+    "premature_tool_calls": 0,
+    "duplicate_tool_calls": 0,
+    "missed_tool_calls": 0,
+    "unauthorized_field_mutations": 0,
+    "stale_result_exposures": 0,
+    "margin_violations": 0,
+    "nondeterministic_results": 0,
+    "final_action_mismatches": 0,
+    "result_status_mismatches": 0,
+    "state_mismatches": 0,
+    "missing_field_mismatches": 0
+  },
+  "readiness_gates_8_4": {
+    "zero_premature_tool_calls": true,
+    "zero_duplicate_tool_calls": true,
+    "zero_unauthorized_mutations": true,
+    "zero_stale_result_reuse": true,
+    "zero_margin_violations": true,
+    "reproducible_numbers": true
+  },
+  "not_measured": {
+    "reason": "requires the real local model; a stub would fabricate results",
+    "metrics": [
+      "extraction: valid schema, per-field accuracy, complete-state exact match",
+      "corrections: corrected-field accuracy from natural language",
+      "writing: unsupported numbers, status faithfulness, clarity rubric",
+      "scope: out-of-domain redirect accuracy",
+      "runtime: P50/P95 latency, peak memory",
+      "Baseline A \u2014 direct chat comparison (\u00a78.1)"
+    ]
+  },
+  "raw_failures": []
+}
