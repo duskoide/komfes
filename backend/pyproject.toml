@@ -1,0 +1,24 @@
+[project]
+name = "hargaturun"
+version = "0.1.0"
+description = "HargaTurun deterministic pricing oracle and model contracts"
+readme = "README.md"
+requires-python = ">=3.11"
+# The deterministic core is deliberately dependency-free. The API layer is
+# developed separately and will declare its runtime dependencies on that branch.
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["hargaturun*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
