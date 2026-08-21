@@ -74,7 +74,12 @@ class ActiveDealsScreen extends ConsumerWidget {
                   }
                   return GridView.builder(
                     physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.all(AppSpacing.lg),
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.lg,
+                      AppSpacing.lg,
+                      AppSpacing.lg,
+                      AppSpacing.xxxl + AppSpacing.xl,
+                    ),
                     gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                       crossAxisCount: isTablet ? 2 : 1,
                       mainAxisExtent: 260,
