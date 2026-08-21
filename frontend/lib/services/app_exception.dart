@@ -45,6 +45,14 @@ class NotFoundException extends AppException {
   const NotFoundException([super.message = 'Kode tidak ditemukan. Cek lagi hurufnya.']);
 }
 
+/// `404` dari `/api/chat` — sesi konsultasi sudah tidak dikenal server.
+/// UI harus memulai sesi baru dan mengatakannya, bukan diam-diam gagal.
+class SessionExpiredException extends AppException {
+  const SessionExpiredException([
+    super.message = 'Sesi konsultasi sudah berakhir. Mulai lagi dari awal, ya.',
+  ]);
+}
+
 /// OTP salah / kadaluarsa / terlalu banyak percobaan
 class OtpException extends AppException {
   const OtpException(super.message);
