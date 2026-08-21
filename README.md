@@ -364,7 +364,18 @@ FastAPI ──HTTP──► local model server                      ▼
                                                           └──► data/hargaturun.db
 ```
 
-The current implementation provides FastAPI + SQLite under `backend/`, the Flutter web/PWA under `frontend/`, and the standalone llama.cpp service in `compose.llm.yml`. Run the API with `cd backend && uv sync --extra dev && uv run hargaturun-api`; run the UI browser-independently with `cd frontend && flutter run -d web-server --web-hostname 127.0.0.1 --web-port 3000 --dart-define=API_BASE_URL=http://127.0.0.1:8000`, then open `http://127.0.0.1:3000` in any browser.
+The current implementation provides FastAPI + SQLite under `backend/`, the Flutter web/PWA under `frontend/`, and llama.cpp model serving. Start the model with `./scripts/run-llama-server.sh`, then run the API with `cd backend && uv sync --extra dev && uv run hargaturun-api`.
+
+For a fast browser preview, build the bundled release app and serve it locally:
+
+```bash
+nix develop -c bash -lc 'cd frontend && flutter build web --release \
+  --dart-define=API_BASE_URL=http://127.0.0.1:8000 \
+  --dart-define=DEVICE_PREVIEW=true'
+python3 -m http.server 3000 --directory frontend/build/web
+```
+
+Then open `http://127.0.0.1:3000`. Use `nix develop -c bash -lc 'cd frontend && flutter run -d web-server --web-hostname 127.0.0.1 --web-port 3000 --dart-define=API_BASE_URL=http://127.0.0.1:8000'` only when hot reload and debugging are needed; its first load downloads hundreds of debug modules and is substantially slower. The current base Qwen3.5-4B GGUF is for infrastructure validation only; replace it with the evaluated fine-tuned artifact before submission.
 
 ---
 

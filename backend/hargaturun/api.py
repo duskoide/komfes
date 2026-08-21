@@ -130,7 +130,7 @@ def create_app(
                         "message": "Sistem AI sedang tidak tersedia. Coba lagi sebentar.",
                     },
                 )
-            input_data = parsed["parsed_input"]
+            input_data = _normalize_display_names(parsed["parsed_input"])
             if parsed["needs_confirmation"]:
                 return JSONResponse(
                     status_code=422,
@@ -141,7 +141,9 @@ def create_app(
                     },
                 )
         else:
-            input_data = payload.model_dump(exclude_none=True, exclude={"free_text"})
+            input_data = _normalize_display_names(
+                payload.model_dump(exclude_none=True, exclude={"free_text"})
+            )
 
         missing = _missing_pricing_fields(input_data)
         if missing:
@@ -230,11 +232,12 @@ def create_app(
                 "SELECT shop_name, business_type, short_address FROM shops WHERE phone = ?",
                 (payload.phone,),
             ).fetchone()
+        shop_data = dict(shop) if shop else None
         return {
             "phone": payload.phone,
             "token": _make_token(payload.phone),
             "is_new_vendor": shop is None,
-            "shop": dict(shop) if shop else None,
+            "shop": _normalize_display_names(shop_data) if shop_data else None,
         }
 
     @app.post("/api/shops")
@@ -242,6 +245,9 @@ def create_app(
         payload: ShopRequest,
         phone: Annotated[str, Depends(_authenticated_phone)],
     ) -> dict:
+        shop_data = _normalize_display_names(payload.model_dump())
+        if not shop_data["shop_name"]:
+            raise HTTPException(status_code=422, detail="Nama toko wajib diisi.")
         with database.session() as connection:
             connection.execute(
                 """INSERT INTO shops(phone, shop_name, business_type, short_address)
@@ -250,9 +256,14 @@ def create_app(
                      shop_name=excluded.shop_name,
                      business_type=excluded.business_type,
                      short_address=excluded.short_address""",
-                (phone, payload.shop_name, payload.business_type, payload.short_address),
+                (
+                    phone,
+                    shop_data["shop_name"],
+                    shop_data["business_type"],
+                    shop_data["short_address"],
+                ),
             )
-        return payload.model_dump()
+        return shop_data
 
     @app.post("/api/deals", status_code=201)
     def publish_deal(payload: PublishDealRequest) -> dict:
@@ -268,6 +279,14 @@ def create_app(
         if abs(computed_discount - payload.discount_percent) > 1:
             raise HTTPException(status_code=422, detail="Persentase diskon tidak sesuai harga deal.")
 
+        display_names = _normalize_display_names(
+            {"item_name": payload.item_name, "shop_name": payload.shop_name}
+        )
+        if not display_names["item_name"] or not display_names["shop_name"]:
+            raise HTTPException(
+                status_code=422,
+                detail="Nama barang dan nama toko wajib diisi.",
+            )
         deal_id = secrets.token_hex(12)
         created_at = _now()
         with database.session() as connection:
@@ -278,7 +297,7 @@ def create_app(
                      promo_copy,status,created_at)
                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
-                    deal_id, payload.item_name, payload.shop_name, payload.category,
+                    deal_id, display_names["item_name"], display_names["shop_name"], payload.category,
                     payload.original_price, payload.cost, payload.deal_price,
                     payload.discount_percent, payload.days_remaining,
                     payload.initial_stock, payload.initial_stock, payload.promo_copy,
@@ -389,12 +408,45 @@ def create_app(
     return app
 
 
+def _normalize_display_names(data: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(data)
+    for field in ("item_name", "shop_name"):
+        value = normalized.get(field)
+        if isinstance(value, str):
+            normalized[field] = _strip_wrapping_quotes(value)
+    return normalized
+
+
+def _strip_wrapping_quotes(value: str) -> str:
+    """Remove quote punctuation wrapped around a user-visible name only."""
+    result = value.strip()
+    quote_pairs = (("'", "'"), ('"', '"'), ("‘", "’"), ("“", "”"), ("«", "»"))
+    while len(result) >= 2:
+        pair = next(
+            ((opening, closing) for opening, closing in quote_pairs
+             if result.startswith(opening) and result.endswith(closing)),
+            None,
+        )
+        if pair is None:
+            break
+        unwrapped = result[len(pair[0]):-len(pair[1])].strip()
+        if not unwrapped:
+            return ""
+        result = unwrapped
+    return result
+
+
 def _missing_pricing_fields(data: dict[str, Any]) -> list[str]:
     required = (
         "item_name", "category", "original_price", "cost", "stock",
         "days_remaining", "daily_sales",
     )
-    return [field for field in required if data.get(field) is None]
+    return [
+        field
+        for field in required
+        if data.get(field) is None
+        or (isinstance(data.get(field), str) and not data[field].strip())
+    ]
 
 
 def _cors_origins() -> list[str]:
@@ -437,8 +489,8 @@ def _authenticated_phone(authorization: Annotated[str | None, Header()] = None) 
 def _deal_dict(row: Any) -> dict:
     return {
         "id": row["id"],
-        "item_name": row["item_name"],
-        "shop_name": row["shop_name"],
+        "item_name": _strip_wrapping_quotes(row["item_name"]),
+        "shop_name": _strip_wrapping_quotes(row["shop_name"]),
         "category": row["category"],
         "original_price": row["original_price"],
         "cost": row["cost"],
@@ -468,8 +520,8 @@ def _claim_dict(row: Any) -> dict:
         "status": row["status"],
         "created_at": row["created_at"],
         "redeemed_at": row["redeemed_at"],
-        "item_name": row["item_name"],
-        "shop_name": row["shop_name"],
+        "item_name": _strip_wrapping_quotes(row["item_name"]),
+        "shop_name": _strip_wrapping_quotes(row["shop_name"]),
         "price_to_pay": row["price_to_pay"],
     }
 

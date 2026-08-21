@@ -26,7 +26,6 @@ class PhoneInputScreen extends ConsumerStatefulWidget {
 
 class _PhoneInputScreenState extends ConsumerState<PhoneInputScreen> {
   final _controller = TextEditingController();
-  String? _error;
   bool _submitting = false;
   bool _touched = false;
 

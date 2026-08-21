@@ -95,6 +95,31 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(result["recommendation"]["recommended_price"], 11000)
         self.assertTrue(result["explanation"])
 
+    def test_names_drop_wrapping_quotes_before_writer_and_preview(self):
+        payload = self.recommendation_payload()
+        payload["item_name"] = "''Roti Tawar''"
+        payload["shop_name"] = "“Toko Sari”"
+
+        response = self.client.post("/api/recommend", json=payload)
+
+        self.assertEqual(response.status_code, 200)
+        result = response.json()
+        self.assertEqual(result["normalized_input"]["item_name"], "Roti Tawar")
+        self.assertEqual(result["normalized_input"]["shop_name"], "Toko Sari")
+        self.assertEqual(result["preview"]["item_name"], "Roti Tawar")
+        self.assertEqual(result["preview"]["shop_name"], "Toko Sari")
+
+    def test_quote_only_names_are_rejected_after_normalization(self):
+        payload = self.recommendation_payload()
+        payload["item_name"] = "''"
+        payload["shop_name"] = '""'
+
+        response = self.client.post("/api/recommend", json=payload)
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json()["status"], "needs_confirmation")
+        self.assertIn("item_name", response.json()["missing_fields"])
+
     def test_free_text_requests_confirmation(self):
         response = self.client.post("/api/recommend", json={"free_text": "roti 30 pcs"})
         self.assertEqual(response.status_code, 422)
