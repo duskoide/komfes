@@ -1,0 +1,5 @@
+# direnv-generated environment and flake profile links
+/.direnv/
+
+# Graphify-generated knowledge graph and reports
+/graphify-out/
