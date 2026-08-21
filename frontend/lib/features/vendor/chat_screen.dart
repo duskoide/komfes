@@ -59,9 +59,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final notifier = ref.read(chatFlowProvider.notifier);
     await notifier.confirm(patch: patch);
     if (!mounted) return;
-    // Konfirmasi dan perhitungan tetap dua aksi terpisah di sisi server: tool
-    // pricing hanya boleh dipanggil setelah revisinya dikonfirmasi.
-    if (ref.read(chatFlowProvider).stateOrEmpty.confirmed) {
+
+    final flow = ref.read(chatFlowProvider);
+    // Server boleh langsung menghitung begitu revisinya dikonfirmasi. Kalau
+    // hasilnya sudah datang, jangan minta calculate lagi — itu tidak memicu
+    // perhitungan kedua, tapi menghasilkan pesan asisten yang kembar.
+    if (flow.stateOrEmpty.confirmed && !flow.hasResult) {
       await notifier.calculate();
     }
     _scrollToBottom();
