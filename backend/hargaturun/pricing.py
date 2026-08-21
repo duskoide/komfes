@@ -224,20 +224,71 @@ def compute(inp: PricingInput) -> OracleResult:
 
     1. invalid economics / numbers  -> invalid_input
     2. already expired              -> invalid_input (expired)
-    3. fire sale (expires today)    -> recommendation (aggressive, margin-safe)
+    3. fire sale (expires today)    -> recommendation or thin-margin warning
     4. no action (low pressure)     -> no_action
-    5. very low stock cap           -> recommendation (<=15%)
-    6. normal formula               -> recommendation
+    5. insufficient discount margin -> invalid_input
+    6. very low stock cap           -> recommendation (<=15%)
+    7. normal formula               -> recommendation
     """
+    if not isinstance(inp.category, str):
+        return OracleResult(
+            status=STATUS_INVALID,
+            message="Kategori harus berupa teks yang valid.",
+        )
     category = normalize_category(inp.category)
+
+    shelf_defaulted = inp.total_shelf_life is None
+    raw_shelf = DEFAULT_SHELF_LIFE[category] if shelf_defaulted else inp.total_shelf_life
+    numeric_values = (
+        inp.original_price,
+        inp.cost,
+        inp.stock,
+        inp.days_remaining,
+        inp.daily_sales,
+        raw_shelf,
+    )
+
+    # Reject booleans, non-numeric values, NaN, and infinities at the oracle
+    # boundary.  The function is also used by data-generation scripts, so it
+    # cannot rely solely on a future HTTP schema to make arithmetic safe.
+    if any(
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or (isinstance(value, float) and not math.isfinite(value))
+        for value in numeric_values
+    ):
+        return OracleResult(
+            status=STATUS_INVALID,
+            message="Input tidak valid. Semua angka harus berupa nilai yang terbatas.",
+        )
+
     price = inp.original_price
     cost = inp.cost
     stock = inp.stock
-    days = float(inp.days_remaining)
-    daily = float(inp.daily_sales)
+    try:
+        # The formula uses floating-point ratios. Ensure even arbitrarily large
+        # Python integers fit that arithmetic domain before any division.
+        for value in (price, cost, stock):
+            if not math.isfinite(float(value)):
+                raise OverflowError
+        days = float(inp.days_remaining)
+        daily = float(inp.daily_sales)
+        shelf = float(raw_shelf)
+    except (OverflowError, TypeError, ValueError):
+        return OracleResult(
+            status=STATUS_INVALID,
+            message="Input tidak valid. Angka berada di luar rentang yang didukung.",
+        )
 
-    shelf_defaulted = inp.total_shelf_life is None
-    shelf = float(DEFAULT_SHELF_LIFE[category] if shelf_defaulted else inp.total_shelf_life)
+    if any(
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        for value in (price, cost, stock)
+    ):
+        return OracleResult(
+            status=STATUS_INVALID,
+            message="Harga, modal, dan stok harus berupa bilangan bulat.",
+        )
 
     # -- 1. invalid economics / numbers ------------------------------------
     if price <= 0 or cost < 0 or stock <= 0 or daily <= 0 or shelf <= 0:
@@ -262,6 +313,9 @@ def compute(inp: PricingInput) -> OracleResult:
             stock=stock,
         )
 
+    margin_percent = (price - cost) / price * 100.0
+    # Margin ceiling (Step 5): keep at least Rp500 profit per unit.
+    max_discount = min(DISCOUNT_MAX, margin_percent - (MIN_MARGIN_RP / price * 100.0))
     # -- shared intermediates (Steps 1-3, 5) --------------------------------
     days_of_supply = stock / daily
     pressure = days_of_supply / days
@@ -269,12 +323,10 @@ def compute(inp: PricingInput) -> OracleResult:
     urgency = life_consumed ** URGENCY_EXPONENT
     bias = CATEGORY_BIAS[category]
 
-    margin_percent = (price - cost) / price * 100.0
-    # Margin ceiling (Step 5): keep at least Rp500 profit per unit.
-    max_discount = min(DISCOUNT_MAX, margin_percent - (MIN_MARGIN_RP / price * 100.0))
-
     # -- 3. fire sale: expires today ---------------------------------------
     if days < FIRE_SALE_DAYS:
+        if max_discount < DISCOUNT_MIN:
+            return _thin_margin_result(stock)
         # Override: go as deep as the margin ceiling allows. Max urgency
         # regardless of the pressure ratio (§9.5 special case).
         discount = _finalize_discount(raw=float(DISCOUNT_MAX), max_discount=max_discount)
@@ -304,6 +356,11 @@ def compute(inp: PricingInput) -> OracleResult:
             urgency=urgency,
         )
 
+    # A low-margin item that will sell naturally still needs no action. Only
+    # reject the economics when this call would actually issue a markdown.
+    if max_discount < DISCOUNT_MIN:
+        return _thin_margin_result(stock)
+
     # -- Steps 4 (raw discount) --------------------------------------------
     pressure_factor = clamp((pressure - 1.0) / PRESSURE_DIVISOR, 0.0, 1.0)
     raw_discount = pressure_factor * urgency * bias * BASE_SCALE
@@ -327,6 +384,18 @@ def compute(inp: PricingInput) -> OracleResult:
     )
 
 
+def _thin_margin_result(stock: int) -> OracleResult:
+    """Return the warning used when no real, margin-safe markdown can fit."""
+    return OracleResult(
+        status=STATUS_INVALID,
+        message=(
+            "Margin terlalu tipis untuk diskon minimal 5% sambil menyisakan "
+            "laba Rp500 per unit."
+        ),
+        stock=stock,
+    )
+
+
 def _finalize_discount(raw: float, max_discount: float) -> int:
     """Clamp to [5, ceiling], round to 5%, and never overshoot the hard margin
     ceiling.
@@ -337,15 +406,14 @@ def _finalize_discount(raw: float, max_discount: float) -> int:
     Since the margin ceiling is a stated HARD constraint, we round DOWN to the
     nearest 5% when the naive rounding would overshoot it. In the common case
     (e.g. the 30% worked example) this is byte-identical to the literal formula.
-    When the ceiling is below 5% (razor-thin margin) this can yield 0 — the
-    honest answer that no margin-safe discount exists; the price floor in
-    ``_build_recommendation`` still guarantees ``price >= cost + Rp500``.
+    ``compute`` rejects a margin ceiling below 5%, so every call here can return
+    a real markdown rather than a misleading 0% recommendation.
     """
-    clamped = clamp(raw, DISCOUNT_MIN, max(DISCOUNT_MIN, max_discount))
+    clamped = clamp(raw, DISCOUNT_MIN, max_discount)
     discount = round_to_step(clamped, DISCOUNT_STEP)
     if discount > max_discount:
         discount = floor_to_step(max_discount, DISCOUNT_STEP)
-    return max(0, discount)
+    return max(DISCOUNT_MIN, discount)
 
 
 def _build_recommendation(
@@ -367,6 +435,12 @@ def _build_recommendation(
     Guarantees ``recommended_price >= cost + Rp500`` by construction."""
     # Step 7 — recommended price, with the absolute margin floor.
     recommended_price = round_to_step(price * (1 - discount / 100.0), PRICE_STEP)
+    # At very low price points, nearest-Rp500 rounding can erase a small
+    # markdown or even round above the original price. Fall back to the lower
+    # Rp500 step in that case, then apply the margin floor. The earlier 5%
+    # feasibility gate guarantees the floor itself remains a real markdown.
+    if recommended_price >= price:
+        recommended_price = floor_to_step(price * (1 - discount / 100.0), PRICE_STEP)
     recommended_price = max(recommended_price, cost + MIN_MARGIN_RP)
 
     # Step 8 — impact projections.
@@ -402,6 +476,7 @@ def _build_recommendation(
         urgency=urgency,
     )
 
-    # Post-condition: the one guarantee the vendor relies on.
-    assert result.recommended_price >= cost + MIN_MARGIN_RP
+    # Post-conditions: a recommendation is always a real, margin-safe markdown.
+    assert DISCOUNT_MIN <= result.discount_percent <= DISCOUNT_MAX
+    assert cost + MIN_MARGIN_RP <= result.recommended_price < price
     return result

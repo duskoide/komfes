@@ -77,6 +77,63 @@ class TestValiditySafetyGates(unittest.TestCase):
         ):
             self.assertEqual(compute(bad).status, STATUS_INVALID)
 
+    def test_non_finite_numbers_are_invalid_without_crashing(self):
+        factories = (
+            lambda value: PricingInput("Bakery", value, 10000, 10, 2, 5, 4),
+            lambda value: PricingInput("Bakery", 15000, value, 10, 2, 5, 4),
+            lambda value: PricingInput("Bakery", 15000, 10000, value, 2, 5, 4),
+            lambda value: PricingInput("Bakery", 15000, 10000, 10, value, 5, 4),
+            lambda value: PricingInput("Bakery", 15000, 10000, 10, 2, value, 4),
+            lambda value: PricingInput("Bakery", 15000, 10000, 10, 2, 5, value),
+        )
+        for value in (float("nan"), float("inf"), float("-inf")):
+            for make_input in factories:
+                with self.subTest(value=value, factory=make_input):
+                    self.assertEqual(compute(make_input(value)).status, STATUS_INVALID)
+
+    def test_boolean_numeric_input_is_invalid(self):
+        self.assertEqual(
+            compute(PricingInput("Bakery", 15000, 10000, 10, True, 5, 4)).status,
+            STATUS_INVALID,
+        )
+
+    def test_money_and_stock_require_integer_values(self):
+        for bad in (
+            PricingInput("Bakery", 15000.5, 10000, 10, 2, 5, 4),
+            PricingInput("Bakery", 15000, 10000.5, 10, 2, 5, 4),
+            PricingInput("Bakery", 15000, 10000, 10.5, 2, 5, 4),
+        ):
+            with self.subTest(input=bad):
+                self.assertEqual(compute(bad).status, STATUS_INVALID)
+
+    def test_extreme_integer_is_invalid_without_overflow(self):
+        r = compute(PricingInput("Bakery", 10**10000, 0, 30, 1, 5, 4))
+        self.assertEqual(r.status, STATUS_INVALID)
+
+    def test_margin_too_thin_for_minimum_discount_is_invalid(self):
+        r = compute(PricingInput("Bakery", 10000, 9300, 30, 1, 5, 4))
+        self.assertEqual(r.status, STATUS_INVALID)
+        self.assertIn("margin", r.message.lower())
+
+    def test_thin_margin_does_not_override_no_action(self):
+        r = compute(PricingInput("Bakery", 10000, 9300, 5, 5, 5, 4))
+        self.assertEqual(r.status, STATUS_NO_ACTION)
+
+    def test_minimum_discount_margin_boundary_is_valid(self):
+        # Rp1,000 margin permits exactly 5% off while retaining Rp500 profit.
+        r = compute(PricingInput("Bakery", 10000, 9000, 30, 1, 5, 4))
+        self.assertEqual(r.status, STATUS_RECOMMENDATION)
+        self.assertEqual(r.discount_percent, 5)
+        self.assertEqual(r.recommended_price, 9500)
+
+    def test_low_price_rounding_still_produces_a_markdown(self):
+        # Nearest-Rp500 rounding would turn a 5% markdown on Rp3.460 into
+        # Rp3.500. The engine must choose the lower price step instead.
+        r = compute(PricingInput("Canned", 3460, 1098, 89, 12.55, 28.12, 178.9))
+        self.assertEqual(r.status, STATUS_RECOMMENDATION)
+        self.assertLess(r.recommended_price, 3460)
+        self.assertGreaterEqual(r.recommended_price, 1098 + MIN_MARGIN_RP)
+
     def test_unknown_category_raises(self):
         with self.assertRaises(ValueError):
             compute(PricingInput("Electronics", 15000, 10000, 10, 2, 5))
@@ -155,12 +212,13 @@ class TestSpecialCases(unittest.TestCase):
         self.assertLessEqual(r.discount_percent, DISCOUNT_MAX)
         self.assertGreaterEqual(r.recommended_price, 10000 + MIN_MARGIN_RP)
 
-    def test_fire_sale_still_respects_margin_floor_on_thin_margin(self):
-        # Thin margin + expires today: discount is capped by the ceiling, and
-        # the price floor holds no matter what.
+    def test_fire_sale_with_too_little_margin_returns_warning(self):
+        # A 5% markdown cannot fit while retaining Rp500 profit, so issuing a
+        # 0% "fire sale" would be misleading.
         r = compute(PricingInput("Bakery", 11000, 10000, 20, 0.5, 8, total_shelf_life=4))
-        self.assertTrue(r.is_fire_sale)
-        self.assertGreaterEqual(r.recommended_price, 10000 + MIN_MARGIN_RP)
+        self.assertEqual(r.status, STATUS_INVALID)
+        self.assertFalse(r.is_fire_sale)
+        self.assertIn("margin", r.message.lower())
 
     def test_low_stock_minimal_discount(self):
         # Even under heavy pressure, 1-2 units get at most a 15% markdown.
@@ -230,6 +288,10 @@ class TestInvariantsFuzz(unittest.TestCase):
                 self.assertGreaterEqual(r.discount_percent, 0)
                 self.assertLessEqual(r.discount_percent, DISCOUNT_MAX)
                 self.assertEqual(r.discount_percent % 5, 0)
+                # Recommendations are real markdowns, never a 0% offer or a
+                # price increase caused by applying the absolute floor.
+                self.assertGreaterEqual(r.discount_percent, 5)
+                self.assertLess(r.recommended_price, price)
                 # Displayed discount never exceeds the margin ceiling: the
                 # discounted price implied by discount_percent still clears cost.
                 self.assertGreaterEqual(
