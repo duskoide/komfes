@@ -10,14 +10,9 @@
     "cases_file": "data/eval/consultations.jsonl",
     "cases_file_sha256": "c68541aaa0457f8abafc1d14615a80948d884a997aefa9b68117a8cacb469750",
     "suite_validation": "passed",
-    "commit": "36692b3daa14813f7a65c9dfb9a30f488cacede6",
-    "working_tree_dirty": true,
-    "working_tree_status": [
-      " M .gitignore",
-      " M reports/agentic-workflow-safety.json",
-      " M scripts/eval_agentic_workflow.py",
-      "?? backend/tests/test_eval_agentic_workflow.py"
-    ]
+    "commit": "65e8fdbf23c77f23e3456f602dfe93f7c461d511",
+    "working_tree_dirty": false,
+    "working_tree_status": []
   },
   "tool": {
     "name": "calculate_markdown_recommendation",
