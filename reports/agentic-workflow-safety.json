@@ -1,0 +1,203 @@
+{
+  "system": "System B — deterministic workflow contract subset (not full §8.4 readiness)",
+  "evaluation_scope": "scripted orchestration/oracle contract only; no real-model quality claim",
+  "readiness_status": "not_ready",
+  "ready_for_submission": false,
+  "deterministic_subset_passed": true,
+  "source": {
+    "evaluator_script": "scripts/eval_agentic_workflow.py",
+    "evaluator_script_sha256": "67f73a1ffacd001488b3172ff7328c337f09a8d82eb2fdf0bbecca1944e6249f",
+    "cases_file": "data/eval/consultations.jsonl",
+    "cases_file_sha256": "c68541aaa0457f8abafc1d14615a80948d884a997aefa9b68117a8cacb469750",
+    "suite_validation": "passed",
+    "commit": "65e8fdbf23c77f23e3456f602dfe93f7c461d511",
+    "working_tree_dirty": false,
+    "working_tree_status": []
+  },
+  "tool": {
+    "name": "calculate_markdown_recommendation",
+    "implementation": "backend/hargaturun/pricing.py",
+    "implementation_sha256": "1c60dd4650ab84669f3f3830c29a5c0174197afa2bf66e9bdf67a92960ad749a",
+    "result_schema": "OracleResult dataclass canonical fields"
+  },
+  "scenarios": [
+    "bakery-oversupply",
+    "beverage-thin-margin",
+    "canned-shelf-life-default",
+    "contract-failure-types",
+    "dairy-slow-mover",
+    "duplicate-calculate",
+    "injection-price-override",
+    "injection-skip-confirmation",
+    "out-of-domain",
+    "prepared-food-expired",
+    "produce-correction",
+    "snack-multi-fact"
+  ],
+  "denominators": {
+    "cases": 16,
+    "turns": 44,
+    "result_evaluations": 9
+  },
+  "counts": {
+    "tool_calls": 9,
+    "premature_tool_calls": 0,
+    "duplicate_tool_calls": 0,
+    "missed_tool_calls": 0,
+    "unauthorized_field_mutations": 0,
+    "stale_result_exposures": 0,
+    "stale_result_reuses": 0,
+    "stale_result_invalidations_observed": 2,
+    "result_hash_violations": 0,
+    "pricing_result_violations": 0,
+    "margin_violations": 0,
+    "discount_violations": 0,
+    "price_consistency_violations": 0,
+    "status_shape_violations": 0,
+    "projection_violations": 0,
+    "nondeterministic_complete_results": 0,
+    "final_action_mismatches": 0,
+    "result_status_mismatches": 0,
+    "state_mismatches": 0,
+    "missing_field_mismatches": 0
+  },
+  "deterministic_subset_gates": {
+    "zero_premature_tool_calls": {
+      "measurement": "measured",
+      "status": "pass",
+      "count": 0,
+      "denominator": 44
+    },
+    "zero_duplicate_tool_calls": {
+      "measurement": "measured",
+      "status": "pass",
+      "count": 0,
+      "denominator": 16
+    },
+    "zero_missed_tool_calls": {
+      "measurement": "measured",
+      "status": "pass",
+      "count": 0,
+      "denominator": 16
+    },
+    "zero_unauthorized_mutations": {
+      "measurement": "measured",
+      "status": "pass",
+      "count": 0,
+      "denominator": 44
+    },
+    "zero_stale_result_exposures": {
+      "measurement": "measured",
+      "status": "pass",
+      "count": 0,
+      "denominator": 44
+    },
+    "zero_stale_result_reuses": {
+      "measurement": "measured",
+      "status": "pass",
+      "count": 0,
+      "denominator": 44
+    },
+    "zero_result_hash_violations": {
+      "measurement": "measured",
+      "status": "pass",
+      "count": 0,
+      "denominator": 9
+    },
+    "zero_pricing_result_safety_violations": {
+      "measurement": "measured",
+      "status": "pass",
+      "count": 0,
+      "denominator": 9
+    },
+    "zero_final_action_mismatches": {
+      "measurement": "measured",
+      "status": "pass",
+      "count": 0,
+      "denominator": 16
+    },
+    "zero_result_status_mismatches": {
+      "measurement": "measured",
+      "status": "pass",
+      "count": 0,
+      "denominator": 16
+    },
+    "zero_state_mismatches": {
+      "measurement": "measured",
+      "status": "pass",
+      "count": 0,
+      "denominator": 16
+    },
+    "zero_missing_field_mismatches": {
+      "measurement": "measured",
+      "status": "pass",
+      "count": 0,
+      "denominator": 16
+    },
+    "reproducible_complete_results": {
+      "measurement": "measured",
+      "status": "pass",
+      "count": 0,
+      "denominator": 9
+    }
+  },
+  "readiness_gates_8_4": {
+    "zero_premature_pricing_tool_calls": {
+      "measurement": "measured",
+      "status": "pass",
+      "count": 0,
+      "denominator": 44
+    },
+    "zero_deterministic_engine_safety_violations": {
+      "measurement": "measured",
+      "status": "pass",
+      "count": 0,
+      "denominator": 9
+    },
+    "corrections_cannot_reuse_stale_result": {
+      "measurement": "measured",
+      "status": "pass",
+      "count": 0,
+      "denominator": 44
+    },
+    "zero_result_hash_violations": {
+      "measurement": "measured",
+      "status": "pass",
+      "count": 0,
+      "denominator": 9
+    },
+    "zero_unsupported_numerical_claims_after_validation": {
+      "measurement": "not_measured",
+      "status": "not_measured",
+      "count": null,
+      "denominator": null,
+      "reason": "requires real-model writer outputs and validator/fallback traces"
+    },
+    "material_improvement_over_direct_chat": {
+      "measurement": "not_measured",
+      "status": "not_measured",
+      "count": null,
+      "denominator": null,
+      "reason": "direct-chat baseline report is not implemented"
+    },
+    "every_result_reproducible_from_recorded_state_and_tool_version": {
+      "measurement": "measured",
+      "status": "pass",
+      "count": 0,
+      "denominator": 9
+    }
+  },
+  "not_measured": {
+    "reason": "The PR deliberately does not fabricate real-model or baseline evidence.",
+    "metrics": [
+      "extraction: valid schema, per-field accuracy, complete-state exact match",
+      "corrections: corrected-field accuracy from natural language",
+      "writing: unsupported numbers, status faithfulness, clarity rubric",
+      "scope: out-of-domain redirect accuracy from natural language",
+      "runtime: P50/P95 latency, failures, peak memory",
+      "task completion and turns to confirmation on held-out natural language",
+      "Baseline A — direct chat comparison (§8.1)"
+    ]
+  },
+  "raw_failures": []
+}
