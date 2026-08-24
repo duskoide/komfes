@@ -127,7 +127,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             controller: _composer,
             busy: flow.isSending,
             onSend: _send,
-            onManualForm: () => context.push(RoutePaths.vendorCheckItem),
+            onManualForm: () => context.push(RoutePaths.vendorManualForm),
           ),
         ],
       ),

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -33,9 +32,10 @@ class TextModel(Protocol):
 
 @dataclass(frozen=True)
 class OpenAICompatibleModel:
-    base_url: str = os.getenv("HARGATURUN_MODEL_URL", "http://127.0.0.1:8080/v1")
-    model: str = os.getenv("HARGATURUN_MODEL_NAME", "hargaturun-qwen3.5-4b")
-    timeout: float = float(os.getenv("HARGATURUN_MODEL_TIMEOUT", "20"))
+    base_url: str = "http://127.0.0.1:8080/v1"
+    model: str = "hargaturun-qwen3.5-4b"
+    timeout: float = 20.0
+    max_output_tokens: int = 350
 
     def parse(self, free_text: str) -> dict:
         output = _normalize_parse_bookkeeping(
@@ -115,7 +115,7 @@ class OpenAICompatibleModel:
                 "temperature": 0,
                 "top_p": 1,
                 "seed": 42,
-                "max_tokens": 350,
+                "max_tokens": self.max_output_tokens,
             },
             ensure_ascii=False,
         ).encode()

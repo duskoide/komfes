@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
+import logging
+import multiprocessing
 import os
+import pickle
 import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -33,7 +37,8 @@ from .consultation import (
     validate_patch,
 )
 from .database import Database
-from .limits import BodySizeLimitMiddleware, RateLimitMiddleware
+from .inference_worker import InferenceRequest, run_inference_worker
+from .limits import BodySizeLimitMiddleware, ChatLimits, RateLimitMiddleware
 from .model_client import ModelContractError, ModelUnavailable, OpenAICompatibleModel, TextModel
 from .pricing import (
     CATEGORIES,
@@ -46,6 +51,7 @@ from .pricing import (
 )
 from .schemas import to_engine_result
 
+logger = logging.getLogger("hargaturun.api")
 UTC = timezone.utc
 DEAL_STATUSES = ("active", "sold_out", "removed")
 
@@ -119,6 +125,7 @@ def create_app(
     database_path: str | Path | None = None,
     model: TextModel | None = None,
 ) -> FastAPI:
+    limits = ChatLimits.from_env()
     database = Database(database_path or os.getenv("HARGATURUN_DB", "data/hargaturun.db"))
 
     @asynccontextmanager
@@ -128,8 +135,17 @@ def create_app(
 
     app = FastAPI(title="HargaTurun API", version="0.1.0", lifespan=lifespan)
     app.state.database = database
-    app.state.model = model or OpenAICompatibleModel()
-    app.state.sessions = SessionStore()
+    app.state.model = model or OpenAICompatibleModel(
+        base_url=limits.model_url,
+        model=limits.model_name,
+        max_output_tokens=limits.max_output_tokens,
+        timeout=limits.model_timeout_seconds,
+    )
+    app.state.sessions = SessionStore(
+        max_sessions=limits.max_sessions,
+        max_turns=limits.max_turns,
+        max_context_chars=limits.max_context_chars,
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins(),
@@ -141,12 +157,12 @@ def create_app(
     # browser bisa membaca statusnya, bukan melihatnya sebagai kegagalan jaringan.
     app.add_middleware(
         RateLimitMiddleware,
-        limit=int(os.getenv("HARGATURUN_RATE_LIMIT", "30")),
-        window_seconds=float(os.getenv("HARGATURUN_RATE_WINDOW", "60")),
+        limit=limits.rate_limit,
+        window_seconds=limits.rate_window_seconds,
     )
     app.add_middleware(
         BodySizeLimitMiddleware,
-        max_bytes=int(os.getenv("HARGATURUN_MAX_BODY_BYTES", str(64 * 1024))),
+        max_bytes=limits.max_body_bytes,
     )
 
     @app.get("/api/health")
@@ -257,7 +273,7 @@ def create_app(
         }
 
     @app.post("/api/chat", response_model=None)
-    def chat(payload: ChatRequest):
+    async def chat(payload: ChatRequest):
         """One synchronous consultation turn.
 
         Every decision below is taken by code. The model is asked only to
@@ -291,6 +307,14 @@ def create_app(
                 message="Oke, kita mulai dari awal. Cerita saja barangmu.",
             )
 
+        if not sessions.accept_turn(session.session_id, payload.action, len(payload.text or "")):
+            logger.info("chat event=limit_rejected action=%s", payload.action)
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Batas konsultasi tercapai. Mulai sesi baru untuk melanjutkan."},
+            )
+        logger.info("chat event=accepted action=%s", payload.action)
+
         # --- gather a proposed patch ------------------------------------- #
         proposed: object = {}
         if payload.action == "message":
@@ -300,10 +324,15 @@ def create_app(
                     content={"detail": "Pesan tidak boleh kosong."},
                 )
             try:
-                parsed = app.state.model.parse(payload.text)
+                parsed = await _run_inference(
+                    app.state.model.parse,
+                    payload.text,
+                    timeout=limits.inference_timeout_seconds,
+                )
                 proposed = parsed.get("parsed_input", {})
-            except (ModelUnavailable, ModelContractError):
+            except Exception:
                 # State survives an outage: nothing is merged, nothing is lost.
+                # Provider details are intentionally not returned.
                 return _chat_response(
                     session,
                     action=SAFE_FAILURE,
@@ -344,7 +373,12 @@ def create_app(
                     message="Datanya belum siap dihitung.",
                 )
 
-            session.result = _result_payload(session.state, oracle, app.state.model)
+            session.result = await _result_payload(
+                session.state,
+                oracle,
+                app.state.model,
+                timeout=limits.inference_timeout_seconds,
+            )
             session.result_status = oracle.status
             session.state = ConsultationState(
                 **{**session.state.to_dict(), "result_revision": session.state.revision}
@@ -584,7 +618,13 @@ def _prompt_for(action: str, session: Any) -> str:
     return "Ada kendala di sistem. Datamu tetap tersimpan."
 
 
-def _result_payload(state: Any, oracle: Any, model: Any) -> dict:
+async def _result_payload(
+    state: Any,
+    oracle: Any,
+    model: Any,
+    *,
+    timeout: float,
+) -> dict:
     """Serialize one oracle outcome for the chat contract.
 
     Prose is requested from the model only after the numbers exist, and its
@@ -611,10 +651,15 @@ def _result_payload(state: Any, oracle: Any, model: Any) -> dict:
     explanation = ""
     promo_copy = ""
     try:
-        prose = model.write(normalized, to_engine_result(oracle))
+        prose = await _run_inference(
+            model.write,
+            normalized,
+            to_engine_result(oracle),
+            timeout=timeout,
+        )
         explanation = prose["explanation"]
         promo_copy = prose["promo_copy"]
-    except (ModelUnavailable, ModelContractError):
+    except Exception:
         pass
 
     recommendation = oracle.recommendation_dict()
@@ -652,6 +697,62 @@ def _chat_response(session: Any, *, action: str, message: str) -> dict:
         "ambiguous_fields": [],
         "result": result,
     }
+
+
+_MAX_INFERENCE_RESULT_BYTES = 1 * 1024 * 1024
+
+
+def _apply_worker_state(callable_: Any, state: dict[str, Any] | None) -> None:
+    owner = getattr(callable_, "__self__", None)
+    target = getattr(owner, "__dict__", None)
+    if isinstance(target, dict) and isinstance(state, dict):
+        target.clear()
+        target.update(state)
+
+
+async def _run_inference(callable_: Any, *args: Any, timeout: float) -> Any:
+    """Run every synchronous provider call in a disposable spawn worker."""
+    if os.name == "nt":
+        raise RuntimeError("cancellable inference is unsupported on Windows; use Linux or macOS")
+
+    context = multiprocessing.get_context("spawn")
+    parent = child = None
+    process = None
+    try:
+        parent, child = context.Pipe(duplex=False)
+        request = InferenceRequest(
+            callable_=callable_,
+            args=tuple(args),
+            max_result_bytes=_MAX_INFERENCE_RESULT_BYTES,
+        )
+        process = context.Process(target=run_inference_worker, args=(request, child))
+        process.start()
+        child.close()
+        child = None
+        deadline = asyncio.get_running_loop().time() + timeout
+        while True:
+            if parent.poll():
+                response = pickle.loads(parent.recv_bytes(_MAX_INFERENCE_RESULT_BYTES))
+                _apply_worker_state(callable_, response.get("state"))
+                if not response.get("ok"):
+                    raise RuntimeError("inference failed")
+                return response["value"]
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                raise asyncio.TimeoutError
+            await asyncio.sleep(min(0.01, remaining))
+    finally:
+        if parent is not None:
+            parent.close()
+        if child is not None:
+            child.close()
+        if process is not None and process.pid is not None:
+            if process.is_alive():
+                process.terminate()
+            await asyncio.to_thread(process.join, 1.0)
+            if process.is_alive():
+                process.kill()
+                await asyncio.to_thread(process.join, 1.0)
 
 
 def _normalize_display_names(data: dict[str, Any]) -> dict[str, Any]:

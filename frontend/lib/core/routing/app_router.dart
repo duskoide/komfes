@@ -63,14 +63,24 @@ final routerProvider = Provider<GoRouter>((ref) {
       // === Vendor sub-halaman (di atas shell, tanpa bottom nav) ===
       GoRoute(path: RoutePaths.vendorChat, builder: (context, state) => const ChatScreen()),
       GoRoute(
-        path: RoutePaths.vendorCheckItem,
+        path: RoutePaths.vendorManualForm,
         builder: (context, state) => CheckItemScreen(prefill: state.extra as ItemInputDraft?),
       ),
-      GoRoute(path: RoutePaths.vendorConfirm, builder: (context, state) => const ConfirmDataScreen()),
       GoRoute(
-        path: RoutePaths.vendorProcessing,
-        builder: (context, state) => AiProcessingScreen(draft: state.extra as ItemInputDraft),
+        path: RoutePaths.vendorManualConfirm,
+        builder: (context, state) => const ConfirmDataScreen(),
       ),
+      GoRoute(
+        path: RoutePaths.vendorManualProcessing,
+        builder: (context, state) => AiProcessingScreen(
+          draft: state.extra as ItemInputDraft,
+        ),
+      ),
+      // Legacy parsing/processing URLs are safe aliases, never primary pages.
+      GoRoute(path: RoutePaths.vendorCheckItem, redirect: (context, state) => RoutePaths.vendorChat),
+      GoRoute(path: RoutePaths.vendorConfirm, redirect: (context, state) => RoutePaths.vendorChat),
+      GoRoute(path: RoutePaths.vendorProcessing, redirect: (context, state) => RoutePaths.vendorChat),
+
       GoRoute(
         path: RoutePaths.vendorResult,
         builder: (context, state) => const RecommendationResultScreen(),

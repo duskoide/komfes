@@ -27,3 +27,10 @@ include = ["hargaturun*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "unit: Fast deterministic unit tests",
+    "integration: Live/in-process service integration tests",
+    "real_model: Explicit opt-in tests requiring live local model server",
+    "compose: Explicit opt-in tests for Docker/Podman compose stack",
+]

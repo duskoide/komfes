@@ -1,16 +1,13 @@
 services:
   llm-server:
-    # Use this floating tag only for initial validation. Pin the tested image
-    # digest before recording the proof of work or submitting the repository.
-    image: ghcr.io/ggml-org/llama.cpp:server-cuda
+    # Tested on 2026-08-24: llama.cpp b10588 (amd64 digest).
+    # No host port is published; the API reaches this service over Compose DNS.
+    image: ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:45047ae940975851c3b195997c91f6bb4add4b941880d94287e5f21ff5a6369a
     pull_policy: missing
     gpus: all
 
-    # The model server is reachable from the host only on loopback. When this
-    # service is merged into the full application Compose file, FastAPI should
-    # call http://llm-server:8080/v1 over the Compose network.
-    ports:
-      - "127.0.0.1:8080:8080"
+    # Intentionally private to the Compose network. Use the full stack for
+    # host access through the API; do not publish llama.cpp directly.
 
     volumes:
       - ./models:/models:ro

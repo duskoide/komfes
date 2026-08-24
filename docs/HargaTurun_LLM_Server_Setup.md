@@ -6,7 +6,18 @@
 > **Model:** evaluated Qwen3.5-4B GGUF `Q4_K_M` (base model is valid for the selected agentic-workflow route; use a fine-tuned artifact only if one is actually trained and evaluated)
 > **Not covered:** conversational orchestrator, state validation, evaluation suite, FastAPI, frontend, or the pricing tool
 
-This guide starts one OpenAI-compatible model server at `http://127.0.0.1:8080/v1`. It is deliberately independent of the Python environment used for Unsloth. An existing Unsloth installation is only relevant when producing the fine-tuned GGUF artifact; the inference container does not import or install Unsloth.
+This guide starts one OpenAI-compatible model server at `http://127.0.0.1:8080/v1`. In the full Compose stack, the server is private and FastAPI uses `http://llm-server:8080/v1` over the Compose network; only the API and frontend are loopback-published for local development.
+
+## Serving identity and network boundary
+
+The tested CUDA serving image is
+`ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:45047ae940975851c3b195997c91f6bb4add4b941880d94287e5f21ff5a6369a`
+(llama.cpp `b10588`, amd64, tested 2026-08-24). Both Compose files pin this
+identity. `compose.yml` and `compose.llm.yml` deliberately have no host port
+mapping for `llm-server`; do not add a public model port. The standalone
+profile is reachable from other Compose services only, while native development
+may still use loopback through `scripts/run-llama-server.sh`.
+
 
 ## 1. Resulting topology
 

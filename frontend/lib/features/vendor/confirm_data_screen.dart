@@ -139,7 +139,7 @@ class _ConfirmDataScreenState extends ConsumerState<ConfirmDataScreen> {
       shopName: _parsed.shopName,
     );
     // Layar ini digantikan V-04, jadi _submitting tidak perlu direset.
-    context.pushReplacement(RoutePaths.vendorProcessing, extra: draft);
+    context.pushReplacement(RoutePaths.vendorManualProcessing, extra: draft);
   }
 
   @override
@@ -280,7 +280,7 @@ class _ConfirmDataScreenState extends ConsumerState<ConfirmDataScreen> {
               onPressed: _submitting
                   ? null
                   : () => context.pushReplacement(
-                        RoutePaths.vendorCheckItem,
+                        RoutePaths.vendorManualForm,
                         extra: _parsed,
                       ),
               child: const Text('Ubah Input'),

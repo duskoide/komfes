@@ -37,7 +37,7 @@ services:
     restart: "no"
 
   llm-server:
-    image: ${HARGATURUN_LLAMA_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda}
+    image: ${HARGATURUN_LLAMA_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:45047ae940975851c3b195997c91f6bb4add4b941880d94287e5f21ff5a6369a}
     pull_policy: missing
     gpus: all
     depends_on:
@@ -45,8 +45,6 @@ services:
         condition: service_completed_successfully
     volumes:
       - model-data:/models:ro
-    ports:
-      - "127.0.0.1:${HARGATURUN_MODEL_PORT:-8080}:8080"
     command:
       - --model
       - /models/hargaturun-qwen3.5-4b-q4_k_m.gguf
@@ -135,7 +133,12 @@ services:
       HARGATURUN_DB: /app/data/hargaturun.db
       HARGATURUN_MODEL_URL: http://llm-server:8080/v1
       HARGATURUN_MODEL_NAME: hargaturun-qwen3.5-4b
-      HARGATURUN_MODEL_TIMEOUT: ${HARGATURUN_MODEL_TIMEOUT:-120}
+      HARGATURUN_MODEL_TIMEOUT: ${HARGATURUN_MODEL_TIMEOUT:-20}
+      HARGATURUN_INFERENCE_TIMEOUT_SECONDS: ${HARGATURUN_INFERENCE_TIMEOUT_SECONDS:-20}
+      HARGATURUN_MAX_BODY_BYTES: ${HARGATURUN_MAX_BODY_BYTES:-65536}
+      HARGATURUN_MAX_TURNS: ${HARGATURUN_MAX_TURNS:-20}
+      HARGATURUN_MAX_CONTEXT_CHARS: ${HARGATURUN_MAX_CONTEXT_CHARS:-12000}
+      HARGATURUN_MAX_OUTPUT_TOKENS: ${HARGATURUN_MAX_OUTPUT_TOKENS:-350}
       HARGATURUN_DEMO_OTP: ${HARGATURUN_DEMO_OTP:-123456}
       HARGATURUN_TOKEN_SECRET: ${HARGATURUN_TOKEN_SECRET:-local-demo-only-change-me}
       HARGATURUN_CORS_ORIGINS: ${HARGATURUN_CORS_ORIGINS:-http://127.0.0.1:3000,http://localhost:3000}

@@ -16,10 +16,13 @@ class RoutePaths {
 
   // Vendor sub-halaman (push di atas shell)
   static const vendorChat = '/vendor/chat';
-  static const vendorCheckItem = '/vendor/check-item'; // V-02
-  static const vendorConfirm = '/vendor/check-item/confirm'; // V-03
-  static const vendorProcessing = '/vendor/check-item/processing'; // V-04
-  static const vendorResult = '/vendor/check-item/result'; // V-05
+  static const vendorManualForm = '/vendor/manual-form'; // outage/accessibility fallback
+  static const vendorManualConfirm = '/vendor/manual-form/confirm';
+  static const vendorManualProcessing = '/vendor/manual-form/processing';
+  static const vendorCheckItem = '/vendor/check-item'; // legacy alias
+  static const vendorConfirm = '/vendor/check-item/confirm'; // legacy alias
+  static const vendorProcessing = '/vendor/check-item/processing'; // legacy alias
+  static const vendorResult = '/vendor/check-item/result'; // result screen
   static const vendorNoAction = '/vendor/check-item/no-action'; // V-06
   static const vendorWarning = '/vendor/check-item/warning'; // V-07
   static const vendorDealDetail = '/vendor/deals/:id'; // V-10
