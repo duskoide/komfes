@@ -117,6 +117,18 @@ class ImageChatEndpointTest(unittest.TestCase):
     def _client(self, model=None):
         return TestClient(create_app(database_path=":memory:", model=model or VisionModel()))
 
+    def test_empty_form_strings_create_session_like_json_semantics(self):
+        model = VisionModel()
+        response = self._client(model).post(
+            "/api/chat/image",
+            data={"session_id": "", "action": "message", "text": ""},
+            files={"image": ("item.jpg", image_bytes("JPEG"), "image/jpeg")},
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["session_id"])
+        self.assertEqual(len(model.calls), 1)
+
     def test_each_supported_format_reaches_proposal_confirmation(self):
         for fmt, media in (("JPEG", "image/jpeg"), ("PNG", "image/png"), ("WEBP", "image/webp")):
             with self.subTest(fmt=fmt):

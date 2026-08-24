@@ -451,6 +451,9 @@ def create_app(
         image_url: str | None = Form(default=None),
     ):
         """Bounded multipart image variant; bytes are validated before inference."""
+        # Empty multipart strings must mean "absent", matching JSON semantics.
+        session_id = session_id or None
+        text = text or None
         if image_url is not None:
             try:
                 reject_remote_url(image_url)
