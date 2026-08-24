@@ -8,7 +8,7 @@ services:
     environment:
       MODEL_URL: ${HARGATURUN_MODEL_DOWNLOAD_URL:-https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf}
       MODEL_SHA256: ${HARGATURUN_MODEL_SHA256:-00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4}
-      MODEL_FILE: hargaturun-qwen3.5-4b-q4_k_m.gguf
+      MODEL_FILE: ${HARGATURUN_MODEL_FILE:-hargaturun-qwen3.5-4b-q4_k_m.gguf}
     volumes:
       - model-data:/models
     command:
@@ -46,10 +46,12 @@ services:
     volumes:
       - model-data:/models:ro
     command:
+    # Explicitly preserved full-stack model selection; standalone compose.llm.yml
+    # provides the opt-in multimodal profile for image requests.
       - --model
-      - /models/hargaturun-qwen3.5-4b-q4_k_m.gguf
+      - /models/${HARGATURUN_MODEL_FILE:-hargaturun-qwen3.5-4b-q4_k_m.gguf}
       - --alias
-      - hargaturun-qwen3.5-4b
+      - ${HARGATURUN_MODEL_NAME:-hargaturun-qwen3.5-4b}
       - --host
       - "0.0.0.0"
       - --port

@@ -53,6 +53,11 @@ to `http://127.0.0.1:8000`. Useful environment values:
 - `HARGATURUN_DB=data/hargaturun.db`
 - `HARGATURUN_MODEL_URL=http://127.0.0.1:8080/v1`
 - `HARGATURUN_MODEL_NAME=hargaturun-qwen3.5-4b`
+- `HARGATURUN_MODEL_FILE=hargaturun-qwen3.5-4b-q4_k_m.gguf` (or another configured 2B/4B candidate)
+- `HARGATURUN_MODEL_SHA256=<64-hex-digest>` (optional native/Compose verification)
+- `HARGATURUN_LLM_PROFILE=text` (native launcher default; set `multimodal` only with a matching projector)
+- `HARGATURUN_MMPROJ_FILE=hargaturun-qwen3.5-mmproj-f16.gguf`
+- `HARGATURUN_MMPROJ_SHA256=<64-hex-digest>` (optional projector verification)
 - `HARGATURUN_DEMO_OTP=123456` (demo-only OTP; no SMS provider)
 - `HARGATURUN_TOKEN_SECRET=...` (set outside local demo use)
 - `HARGATURUN_CORS_ORIGINS=http://localhost:...` (comma-separated). Defaults to

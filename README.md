@@ -179,6 +179,10 @@ python scripts/run_dev_tests.py --tier 3
 # Tier 4: Explicit opt-in live local-model server & Compose smoke tests
 python scripts/run_dev_tests.py --real-model --compose
 
+# Tier 4 multimodal readiness plus one local image request (requires --mmproj server)
+HARGATURUN_MULTIMODAL_MODEL_URL=http://127.0.0.1:8080/v1 \
+python scripts/run_dev_tests.py --real-model --multimodal
+
 # Run all available tiers with strict failure on missing optional tools
 python scripts/run_dev_tests.py --tier all --strict
 ```
@@ -188,7 +192,8 @@ python scripts/run_dev_tests.py --tier all --strict
 | **Tier 1** | Backend unit/contract tests, limits, safety replay | Python >= 3.11, pytest or uv | Fails (required core) |
 | **Tier 2** | Tier 1 + Frontend widget & unit tests | Flutter SDK | Skips frontend with `[SKIP]` notice unless `--strict` |
 | **Tier 3** | Multi-turn wire integration with loopback HTTP dev stub | Python >= 3.11 | Fails (required core) |
-| **Tier 4A** | Live local-model server smoke test (OpenAI-compatible) | Running model server at `:8080` | Skips with `[SKIP]` notice unless `--strict` |
+| **Tier 4A** | Live local-model server readiness/text smoke; optional multimodal readiness + image request | Running model server at `:8080` | Skips with `[SKIP]` notice unless `--strict` |
+
 | **Tier 4B** | Compose stack configuration validation | Docker or Podman on PATH | Skips with `[SKIP]` notice unless `--strict` |
 
 You can also invoke component test runners directly:
@@ -205,6 +210,11 @@ python scripts/eval_agentic_workflow.py
 
 # Frontend widget & unit tests
 cd frontend && flutter test
+
+# Warm latency/VRAM hooks (print unavailable instead of fabricating values)
+python scripts/measure_llm_latency.py --url http://127.0.0.1:8080/v1 --count 20 --warmup 2
+# Against the explicitly enabled --mmproj server:
+python scripts/measure_llm_latency.py --url http://127.0.0.1:8080/v1 --image --count 20 --warmup 2
 ```
 
 > **Issue #4 Scope Note:** The deterministic safety gates (zero premature tool calls, zero stale-result reuse, zero margin violations, result hash verification) are verified automatically. Natural language generation metrics and direct-chat baseline comparison (§8.1) remain explicitly marked as `not_measured` per the safety evaluation contract until competition evaluation artifacts are evaluated.

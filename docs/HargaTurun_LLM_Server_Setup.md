@@ -36,7 +36,71 @@ llama.cpp CUDA server
 
 The server is configured for HargaTurun's short, synchronous, text-only turns. Agent actions and pricing-tool routing live in FastAPI, not inside llama.cpp. The server does not load the vision projector, use the model's 262K maximum context, expose tools directly, or provide a public web UI.
 
-## 2. Fixed runtime profile
+## 2. Profiles and selectable artifacts
+
+Text-only remains the default. The multimodal path is explicitly opt-in because
+Qwen3.5 vision requires a matching projector and additional VRAM. The model and
+alias are configuration values, so 2B/4B candidates can be swapped without code
+changes:
+
+```bash
+# Native launcher, text-only default
+./scripts/run-llama-server.sh
+
+# Native launcher with a matching projector
+HARGATURUN_LLM_PROFILE=multimodal \
+HARGATURUN_MODEL_FILE=hargaturun-qwen3.5-4b-q4_k_m.gguf \
+HARGATURUN_MMPROJ_FILE=hargaturun-qwen3.5-mmproj-f16.gguf \
+./scripts/run-llama-server.sh
+
+# Standalone Compose text profile
+HARGATURUN_MODEL_FILE=hargaturun-qwen3.5-2b-q5_k_m.gguf \
+docker compose -f compose.llm.yml up llm-server
+
+# Standalone Compose multimodal profile (same model directory, read-only)
+docker compose -f compose.llm.yml --profile multimodal up llm-server-mm
+```
+
+The full application `compose.yml` remains text-only by design. It uses
+`HARGATURUN_MODEL_FILE` and `HARGATURUN_MODEL_NAME`; use the standalone
+`multimodal` profile when the image endpoint is being evaluated. Do not run both
+standalone services on the same host port.
+
+### Projector artifact provenance
+
+The projector must be exported for the exact base model family and llama.cpp
+format. Keep it in the Git-ignored `models/` directory; never commit the large
+GGUF or projector. The operator must fill these release-record fields before a
+real run (placeholders are deliberately not measurements):
+
+| Field | Value to record |
+|---|---|
+| Model source URL | `MODEL_SOURCE_URL_TO_RECORD` |
+| Model license | `MODEL_LICENSE_TO_RECORD` |
+| Model filename | `hargaturun-qwen3.5-4b-q4_k_m.gguf` or selected candidate |
+| Model SHA-256 | `MODEL_SHA256_TO_RECORD` |
+| Projector source URL | `PROJECTOR_SOURCE_URL_TO_RECORD` |
+| Projector license | `PROJECTOR_LICENSE_TO_RECORD` |
+| Projector filename | `hargaturun-qwen3.5-mmproj-f16.gguf` or matching export |
+| Projector SHA-256 | `PROJECTOR_SHA256_TO_RECORD` |
+
+Set `HARGATURUN_MODEL_SHA256` and, for the multimodal profile,
+`HARGATURUN_MMPROJ_SHA256`. The native launcher verifies any supplied 64-digit
+hash before starting; unset hashes produce an explicit `not verified` warning.
+The Compose full stack verifies the model during its download/init step. For a
+projector downloaded or copied by an operator, verify it before startup:
+
+```bash
+sha256sum models/hargaturun-qwen3.5-mmproj-f16.gguf
+HARGATURUN_MMPROJ_SHA256=<64-hex-digest> \
+  docker compose -f compose.llm.yml --profile multimodal up llm-server-mm
+```
+
+Use the original provider URL and license for the chosen model/projector (for
+example, the relevant Hugging Face Qwen3.5 GGUF repository); do not claim a
+license or hash until the exact bytes are recorded.
+
+## 3. Fixed runtime profile
 
 | Setting | Value | Reason |
 |---|---:|---|
@@ -49,11 +113,15 @@ The server is configured for HargaTurun's short, synchronous, text-only turns. A
 | Thinking | Disabled | The task needs extraction and concise copy, not chain-of-thought |
 | Sampling | Greedy, fixed seed | Static settings for reproducibility |
 | Prompt cache | Disabled | Requests are short and independent; avoids cache-dependent variation |
-| Vision projector | Disabled | No OCR or image input in the preliminary MVP |
+| Vision projector | Disabled by default | Text-only profile does not load `--mmproj`; multimodal explicitly opts in |
 
 A `Q4_K_M` file is currently about 3 GB. Total runtime VRAM will be higher because of CUDA, model metadata, recurrent/KV state, and compute buffers. Measure the final artifact rather than treating file size as VRAM usage.
 
-## 3. Host prerequisites
+The standalone Compose file mounts the model directory read-only in both
+profiles. The text service has `--no-mmproj`; `llm-server-mm` has a configurable
+`--mmproj /models/$HARGATURUN_MMPROJ_FILE` and never uses `--no-mmproj`.
+
+## 4. Host prerequisites
 
 Install these host components using their official instructions for the Linux distribution:
 
@@ -84,7 +152,7 @@ For stable laptop performance during tests and demonstrations:
 - close games, local AI applications, and other GPU-heavy software;
 - provide adequate cooling to avoid sustained thermal throttling.
 
-## 4. Prepare the GGUF artifact
+## 5. Prepare the GGUF artifact
 
 The Compose service expects exactly:
 
@@ -127,7 +195,7 @@ sha256sum models/hargaturun-qwen3.5-4b-q4_k_m.gguf
 
 Record the final SHA-256 value in the release notes or submission documentation. Anyone reproducing the demonstration should use the same bytes, not merely a file with the same name.
 
-## 5. Review the server configuration
+## 6. Review the server configuration
 
 The repository provides [`compose.llm.yml`](../compose.llm.yml). Validate its syntax before startup:
 
@@ -163,7 +231,7 @@ The important effective server arguments are:
 
 `--offline` ensures the runtime does not fetch a model from the internet. The image and GGUF must already be present locally.
 
-## 6. Start the server
+## 7. Start the server
 
 Pull the CUDA server image while online:
 
@@ -196,7 +264,7 @@ The logs should confirm all of the following:
 
 An unknown `--reasoning`, `--fit`, or Qwen3.5 architecture error indicates an outdated `llama.cpp` image. Pull a current image and retest rather than removing required controls without investigation.
 
-## 7. Check readiness
+## 8. Check readiness
 
 Loading can take time. Poll the health endpoint until it returns HTTP 200:
 
@@ -223,7 +291,7 @@ The returned model ID should be:
 hargaturun-qwen3.5-4b
 ```
 
-## 8. Run an inference smoke test
+## 9. Run an inference smoke test
 
 This request verifies CUDA inference, non-thinking mode, greedy sampling, and schema-constrained JSON. It does not verify that the model has been fine-tuned successfully; model quality belongs in the held-out evaluation.
 
@@ -314,7 +382,7 @@ choices[0].message.content
 
 The response also includes timing information in `timings`. Record prompt and generation throughput during hardware validation.
 
-## 9. Request contract for FastAPI
+## 10. Request contract for FastAPI
 
 When the application is added to the same Compose project, FastAPI should use:
 
@@ -345,7 +413,7 @@ FastAPI must send these values on every generation request because request param
 
 FastAPI must also send the production JSON Schema, validate the returned content with Pydantic, and retry once if parsing or validation fails. Schema-constrained generation guarantees syntax, not semantic correctness. The deterministic Python pricing engine remains the sole authority for all prices, discounts, projections, timing, and safety limits.
 
-## 10. Monitor resource use
+## 11. Monitor resource use
 
 In another terminal, observe VRAM, GPU utilization, temperature, and power while running several requests:
 
@@ -363,7 +431,7 @@ curl --fail --silent --show-error http://127.0.0.1:8080/metrics
 
 The most useful values are prompt tokens/second, predicted tokens/second, active requests, and the maximum observed context usage.
 
-## 11. Acceptance checks
+## 12. Acceptance checks
 
 Do not lock the image, model, or settings until all checks pass with the exact submission GGUF:
 
@@ -382,7 +450,48 @@ Do not lock the image, model, or settings until all checks pass with the exact s
 
 Use `/v1/chat/completions/input_tokens` with the production request body to measure the actual prompt before increasing or reducing context size.
 
-## 12. Pin the tested server image
+## 13. Readiness, smoke tests, and measurements
+
+Static profile checks run without Docker:
+
+```bash
+cd backend
+uv run pytest -q tests/test_model_server_profiles.py
+```
+
+The opt-in readiness test covers the text endpoint and, when
+`HARGATURUN_TEST_MULTIMODAL=1`, a separate multimodal endpoint. One local image
+request is sent only with both flags enabled; absent services skip cleanly unless
+`HARGATURUN_STRICT_MODE=1`:
+
+```bash
+# Text readiness/parse/write smoke (server already running)
+python scripts/run_dev_tests.py --real-model
+
+# Add multimodal readiness plus one image request against the --mmproj server
+HARGATURUN_MULTIMODAL_MODEL_URL=http://127.0.0.1:8080/v1 \
+python scripts/run_dev_tests.py --real-model --multimodal
+
+# Compose config, if Docker/Podman is installed
+python scripts/run_dev_tests.py --compose
+```
+
+For warm measurements, run the script against a ready text or multimodal
+endpoint. It prints P50/P95 request latency and samples peak VRAM with
+`nvidia-smi` when available; it prints `unavailable` rather than fabricating a
+value when the server/GPU cannot be observed:
+
+```bash
+python scripts/measure_llm_latency.py --url http://127.0.0.1:8080/v1 --count 20 --warmup 2
+python scripts/measure_llm_latency.py --url http://127.0.0.1:8080/v1 --image --count 20 --warmup 2
+```
+
+Run these separately against text and multimodal services because both profiles
+use port 8080. Preserve the command output with the declared hardware, model
+and projector hashes only after a real run; no latency or VRAM result is stored
+in this repository by default.
+
+## 14. Pin the tested server image
 
 The initial Compose file uses the floating `server-cuda` tag so current Qwen3.5 support can be validated. A floating image can change after testing, so pin its repository digest before proof-of-work recording and submission.
 
@@ -396,7 +505,7 @@ docker image inspect \
 
 Replace the `image:` value in `compose.llm.yml` with the returned `ghcr.io/...@sha256:...` value, then rerun the complete acceptance checklist.
 
-## 13. Stop, restart, and inspect
+## 15. Stop, restart, and inspect
 
 Stop the server without deleting the local model:
 
@@ -428,7 +537,7 @@ Run without pulling anything after the image and model are cached:
 docker compose -f compose.llm.yml up -d --pull never
 ```
 
-## 14. Troubleshooting
+## 16. Troubleshooting
 
 ### Docker cannot access the GPU
 
@@ -512,7 +621,7 @@ docker compose -f compose.llm.yml config
 
 Do not pass `--hf-repo`, `--model-url`, or authentication tokens to the runtime service.
 
-## 15. Optional quantization comparison
+## 17. Optional quantization comparison
 
 Only after the stable `Q4_K_M` path passes all acceptance checks, compare a `Q5_K_M` export using the same prompts and held-out evaluation. It is likely to fit in 8 GB at a 4K single-slot configuration, but the decision must be based on measured parsing accuracy, JSON compliance, latency, and peak VRAM.
 

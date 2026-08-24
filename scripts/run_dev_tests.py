@@ -82,7 +82,7 @@ def run_backend_unit(verbose: bool = False) -> StepResult:
     pytest_bin = shutil.which("pytest")
     cmd: list[str]
     if shutil.which("uv"):
-        cmd = ["uv", "run", "pytest", "-q", "-m", "not (integration or real_model or compose)"]
+        cmd = ["uv", "run", "--extra", "dev", "python", "-m", "pytest", "-q", "-m", "not (integration or real_model or compose)"]
     elif pytest_bin:
         cmd = [pytest_bin, "-q", "-m", "not (integration or real_model or compose)"]
     else:
@@ -146,7 +146,7 @@ def run_integration(verbose: bool = False) -> StepResult:
     pytest_bin = shutil.which("pytest")
     cmd: list[str]
     if shutil.which("uv"):
-        cmd = ["uv", "run", "pytest", "-q", "-m", "integration"]
+        cmd = ["uv", "run", "--extra", "dev", "python", "-m", "pytest", "-q", "-m", "integration"]
     elif pytest_bin:
         cmd = [pytest_bin, "-q", "-m", "integration"]
     else:
@@ -165,10 +165,18 @@ def run_integration(verbose: bool = False) -> StepResult:
     return StepResult("Live Service & Wire Integration", "Tier 3", "FAIL", dur, msg)
 
 
-def run_real_model(model_url: str | None = None, strict: bool = False, verbose: bool = False) -> StepResult:
+def run_real_model(
+    model_url: str | None = None,
+    strict: bool = False,
+    verbose: bool = False,
+    multimodal: bool = False,
+) -> StepResult:
     start = time.time()
     pytest_bin = shutil.which("pytest")
-    cmd = [pytest_bin or "pytest", "-q", "-m", "real_model"]
+    if shutil.which("uv"):
+        cmd = ["uv", "run", "--extra", "dev", "python", "-m", "pytest", "-q", "-m", "real_model"]
+    else:
+        cmd = [pytest_bin or "pytest", "-q", "-m", "real_model"]
     if verbose:
         cmd = [arg for arg in cmd if arg != "-q"] + ["-v"]
 
@@ -177,6 +185,7 @@ def run_real_model(model_url: str | None = None, strict: bool = False, verbose: 
         "PYTHONPATH": str(BACKEND_DIR),
         "PYTHONDONTWRITEBYTECODE": "1",
         "HARGATURUN_TEST_REAL_MODEL": "1",
+        **({"HARGATURUN_TEST_MULTIMODAL": "1"} if multimodal else {}),
     }
     if model_url:
         env["HARGATURUN_MODEL_URL"] = model_url
@@ -208,7 +217,10 @@ def run_compose(strict: bool = False, verbose: bool = False) -> StepResult:
         return StepResult("Compose Stack Configuration", "Tier 4", "SKIP", 0.0, "Neither Docker nor Podman found on PATH")
 
     pytest_bin = shutil.which("pytest")
-    cmd = [pytest_bin or "pytest", "-q", "-m", "compose"]
+    if shutil.which("uv"):
+        cmd = ["uv", "run", "--extra", "dev", "python", "-m", "pytest", "-q", "-m", "compose"]
+    else:
+        cmd = [pytest_bin or "pytest", "-q", "-m", "compose"]
     if verbose:
         cmd = [arg for arg in cmd if arg != "-q"] + ["-v"]
 
@@ -246,6 +258,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("-f", "--frontend", action="store_true", help="Run frontend widget & unit tests")
     parser.add_argument("-i", "--integration", action="store_true", help="Run live wire integration tests")
     parser.add_argument("--real-model", action="store_true", help="Opt in to live local-model smoke test (Tier 4)")
+    parser.add_argument("--multimodal", action="store_true", help="Also run the opt-in mmproj readiness/image smoke test")
     parser.add_argument("--compose", action="store_true", help="Opt in to Compose stack config test (Tier 4)")
     parser.add_argument("--strict", action="store_true", help="Fail if optional prerequisites are missing")
     parser.add_argument("-v", "--verbose", action="store_true", help="Show detailed test runner output")
@@ -265,13 +278,13 @@ def main() -> int:
     results: list[StepResult] = []
 
     # Determine actions based on tier or explicit flags
-    explicit_flags = any([args.backend, args.eval, args.frontend, args.integration, args.real_model, args.compose])
+    explicit_flags = any([args.backend, args.eval, args.frontend, args.integration, args.real_model, args.multimodal, args.compose])
 
     run_tier1_unit = (args.tier in ("1", "2", "all") or args.backend) if not explicit_flags or args.backend else False
     run_tier1_eval = (args.tier in ("1", "2", "all") or args.eval) if not explicit_flags or args.eval else False
     run_tier2_front = (args.tier in ("2", "all") or args.frontend) if not explicit_flags or args.frontend else False
     run_tier3_integ = (args.tier in ("3", "all") or args.integration) if not explicit_flags or args.integration else False
-    run_tier4_model = args.real_model or (args.tier in ("4", "all") and (args.real_model or os.getenv("HARGATURUN_TEST_REAL_MODEL") == "1"))
+    run_tier4_model = args.real_model or args.multimodal or (args.tier in ("4", "all") and (args.real_model or args.multimodal or os.getenv("HARGATURUN_TEST_REAL_MODEL") == "1"))
     run_tier4_comp = args.compose or (args.tier in ("4", "all") and (args.compose or os.getenv("HARGATURUN_TEST_COMPOSE") == "1"))
 
     # If tier 4 was explicitly requested without sub-flags, enable both
@@ -323,7 +336,7 @@ def main() -> int:
     # Tier 4: Real Model
     if run_tier4_model:
         print(cyan("\n[4/4] Running Tier 4: Live Local-Model Server Smoke Test..."))
-        res = run_real_model(model_url=args.model_url, strict=args.strict, verbose=args.verbose)
+        res = run_real_model(model_url=args.model_url, strict=args.strict, verbose=args.verbose, multimodal=args.multimodal)
         results.append(res)
         if res.status == "PASS":
             print(f"      {green('PASS')} in {res.duration_s:.2f}s")

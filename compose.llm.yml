@@ -1,22 +1,51 @@
+# Standalone text-only default. Opt into multimodal with:
+#   docker compose -f compose.llm.yml --profile multimodal up llm-server-mm
+# The model/projector artifacts are operator-supplied and remain outside Git.
 services:
+  artifact-check:
+    # The text profile verifies the selected model before llama.cpp starts.
+    image: docker.io/curlimages/curl:8.12.1
+    volumes:
+      - ${HARGATURUN_MODEL_DIR:-./models}:/models:ro
+    environment:
+      MODEL_FILE: ${HARGATURUN_MODEL_FILE:-hargaturun-qwen3.5-4b-q4_k_m.gguf}
+      MODEL_SHA256: ${HARGATURUN_MODEL_SHA256:-}
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        target="/models/$${MODEL_FILE}"
+        test -f "$${target}" || { echo "Model not found: $${target}" >&2; exit 1; }
+        if [ -z "$${MODEL_SHA256}" ]; then echo "Model SHA-256: not verified"; exit 0; fi
+        actual="$$(sha256sum "$${target}" | awk '{print $$1}')"
+        test "$${actual}" = "$${MODEL_SHA256}" || { echo "Model checksum mismatch" >&2; exit 1; }
+        echo "Model SHA-256 verified: $${actual}"
+    restart: "no"
+
   llm-server:
     # Tested on 2026-08-24: llama.cpp b10588 (amd64 digest).
     # No host port is published; the API reaches this service over Compose DNS.
-    image: ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:45047ae940975851c3b195997c91f6bb4add4b941880d94287e5f21ff5a6369a
+    image: ${HARGATURUN_LLAMA_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:45047ae940975851c3b195997c91f6bb4add4b941880d94287e5f21ff5a6369a}
     pull_policy: missing
     gpus: all
+    depends_on:
+      artifact-check:
+        condition: service_completed_successfully
 
     # Intentionally private to the Compose network. Use the full stack for
     # host access through the API; do not publish llama.cpp directly.
 
     volumes:
-      - ./models:/models:ro
+      - ${HARGATURUN_MODEL_DIR:-./models}:/models:ro
+
+    environment:
+      HARGATURUN_MODEL_FILE: ${HARGATURUN_MODEL_FILE:-hargaturun-qwen3.5-4b-q4_k_m.gguf}
+      HARGATURUN_MODEL_SHA256: ${HARGATURUN_MODEL_SHA256:-}
 
     command:
       - --model
-      - /models/hargaturun-qwen3.5-4b-q4_k_m.gguf
+      - /models/${HARGATURUN_MODEL_FILE:-hargaturun-qwen3.5-4b-q4_k_m.gguf}
       - --alias
-      - hargaturun-qwen3.5-4b
+      - ${HARGATURUN_MODEL_NAME:-hargaturun-qwen3.5-4b}
       - --host
       - "0.0.0.0"
       - --port
@@ -75,7 +104,7 @@ services:
       - "0"
       - --no-cont-batching
 
-      # HargaTurun is text-only and the server is not a user-facing web app.
+      # Text-only is the safe default. The multimodal profile below is opt-in.
       - --no-mmproj
       - --no-ui
       - --offline
@@ -84,3 +113,106 @@ services:
 
     restart: unless-stopped
     stop_grace_period: 30s
+  llm-server-mm:
+    # Explicit opt-in vision profile; never starts accidentally with the default.
+    profiles: [multimodal]
+    image: ${HARGATURUN_LLAMA_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:45047ae940975851c3b195997c91f6bb4add4b941880d94287e5f21ff5a6369a}
+    pull_policy: missing
+    gpus: all
+    depends_on:
+      artifact-check-mm:
+        condition: service_completed_successfully
+    volumes:
+      - ${HARGATURUN_MODEL_DIR:-./models}:/models:ro
+    environment:
+      HARGATURUN_MODEL_FILE: ${HARGATURUN_MODEL_FILE:-hargaturun-qwen3.5-4b-q4_k_m.gguf}
+      HARGATURUN_MMPROJ_FILE: ${HARGATURUN_MMPROJ_FILE:-hargaturun-qwen3.5-mmproj-f16.gguf}
+      HARGATURUN_MODEL_SHA256: ${HARGATURUN_MODEL_SHA256:-}
+      HARGATURUN_MMPROJ_SHA256: ${HARGATURUN_MMPROJ_SHA256:-}
+    command:
+      - --model
+      - /models/${HARGATURUN_MODEL_FILE:-hargaturun-qwen3.5-4b-q4_k_m.gguf}
+      - --mmproj
+      - /models/${HARGATURUN_MMPROJ_FILE:-hargaturun-qwen3.5-mmproj-f16.gguf}
+      - --alias
+      - ${HARGATURUN_MODEL_NAME:-hargaturun-qwen3.5-4b}
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8080"
+      - --ctx-size
+      - "4096"
+      - --n-predict
+      - "350"
+      - --parallel
+      - "1"
+      - --n-gpu-layers
+      - all
+      - --split-mode
+      - none
+      - --flash-attn
+      - "on"
+      - --fit
+      - "off"
+      - --batch-size
+      - "512"
+      - --ubatch-size
+      - "128"
+      - --cache-type-k
+      - f16
+      - --cache-type-v
+      - f16
+      - --temperature
+      - "0"
+      - --top-k
+      - "0"
+      - --top-p
+      - "1"
+      - --min-p
+      - "0"
+      - --repeat-penalty
+      - "1"
+      - --seed
+      - "42"
+      - --reasoning
+      - "off"
+      - --reasoning-budget
+      - "0"
+      - --no-cache-prompt
+      - --cache-ram
+      - "0"
+      - --no-cont-batching
+      # Multimodal is explicit: --mmproj replaces the text profile's projector-disabled setting.
+      - --no-ui
+      - --offline
+      - --metrics
+      - --warmup
+    restart: unless-stopped
+    stop_grace_period: 30s
+
+  artifact-check-mm:
+    # The opt-in profile verifies both matching operator-supplied artifacts.
+    profiles: [multimodal]
+    image: docker.io/curlimages/curl:8.12.1
+    volumes:
+      - ${HARGATURUN_MODEL_DIR:-./models}:/models:ro
+    environment:
+      MODEL_FILE: ${HARGATURUN_MODEL_FILE:-hargaturun-qwen3.5-4b-q4_k_m.gguf}
+      MMPROJ_FILE: ${HARGATURUN_MMPROJ_FILE:-hargaturun-qwen3.5-mmproj-f16.gguf}
+      MODEL_SHA256: ${HARGATURUN_MODEL_SHA256:-}
+      MMPROJ_SHA256: ${HARGATURUN_MMPROJ_SHA256:-}
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        for file in "$${MODEL_FILE}" "$${MMPROJ_FILE}"; do
+          target="/models/$${file}"
+          test -f "$${target}" || { echo "Artifact not found: $${target}" >&2; exit 1; }
+        done
+        for pair in "$${MODEL_FILE}:$${MODEL_SHA256}" "$${MMPROJ_FILE}:$${MMPROJ_SHA256}"; do
+          file="$${pair%%:*}"; expected="$${pair#*:}"; target="/models/$${file}"
+          if [ -z "$${expected}" ]; then echo "$${file} SHA-256: not verified"; continue; fi
+          actual="$$(sha256sum "$${target}" | awk '{print $$1}')"
+          test "$${actual}" = "$${expected}" || { echo "$${file} checksum mismatch" >&2; exit 1; }
+          echo "$${file} SHA-256 verified: $${actual}"
+        done
+    restart: "no"
