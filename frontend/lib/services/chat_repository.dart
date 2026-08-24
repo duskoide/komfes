@@ -1,20 +1,23 @@
 import '../models/chat.dart';
+import '../models/chat_attachment.dart';
 import '../models/recommendation.dart';
 import 'api_client.dart';
 import 'app_exception.dart';
 
-/// Satu-satunya tempat bentuk kawat `POST /api/chat` diterjemahkan.
-///
-/// Kontraknya masih proposal (`docs/HargaTurun_Chat_API_Proposal.md`) dan
-/// menunggu konfirmasi backend. Semua pemetaan sengaja dikurung di file ini
-/// supaya perubahan kontrak hanya menyentuh satu file, bukan layar chat.
+/// Satu-satunya tempat bentuk kawat chat diterjemahkan.
 abstract class ChatRepository {
-  /// [sessionId] null berarti mulai sesi baru; server mengembalikan id-nya.
   Future<ChatTurn> send({
     required ChatRequestAction action,
     String? sessionId,
     String? text,
     ItemInputDraft? patch,
+  });
+
+  Future<ChatTurn> sendImage({
+    required ChatAttachment attachment,
+    String? sessionId,
+    String? text,
+    void Function(int sent, int total)? onProgress,
   });
 }
 
@@ -36,14 +39,38 @@ class HttpChatRepository implements ChatRepository {
       'text': text,
       'patch': patch?.toStructuredJson(),
     });
+    return _parseResponse(response);
+  }
 
+  @override
+  Future<ChatTurn> sendImage({
+    required ChatAttachment attachment,
+    String? sessionId,
+    String? text,
+    void Function(int sent, int total)? onProgress,
+  }) async {
+    final response = await _api.postMultipart(
+      '/api/chat/image',
+      fields: {
+        'session_id': sessionId,
+        'action': ChatRequestAction.message.wireValue,
+        'text': text,
+      },
+      fileField: 'image',
+      fileName: attachment.fileName,
+      bytes: attachment.bytes,
+      contentType: attachment.mimeType,
+      onProgress: onProgress,
+    );
+    return _parseResponse(response);
+  }
+
+  ChatTurn _parseResponse(ApiResponse response) {
     switch (response.statusCode) {
       case 200:
         if (response.data is! Map) {
           throw const RequestFailedException('Respons chat tidak valid.');
         }
-        // SAFE_FAILURE juga datang sebagai 200: turn-nya tertangani dan state
-        // vendor selamat, jadi tidak boleh diperlakukan sebagai error transport.
         return ChatTurn.fromJson(response.object);
       case 404:
         throw SessionExpiredException(response.message);

@@ -1,17 +1,23 @@
 # hargaturun
 
-A new Flutter project.
+## Chat image attachments
 
-## Getting Started
+The chat composer accepts camera, gallery, and file attachments through the
+`image_picker` and `file_picker` Flutter plugins. The client validates JPEG,
+PNG, and WebP extensions/MIME hints and a 5 MiB byte limit before upload, but
+the backend remains the authoritative validation gate.
 
-This project is a starting point for a Flutter application.
+The current checked-in frontend scope is the shared Dart/web-compatible UI and
+widget-test coverage. Native platform directories are not currently checked
+into this worktree. When Android/iOS scaffolding is added or enabled:
 
-A few resources to get you started if this is your first Flutter project:
-
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- iOS must provide `NSCameraUsageDescription` and
+  `NSPhotoLibraryUsageDescription` in the app's `Info.plist` for camera and
+  photo-library access.
+- Android should use the permission and scoped-storage configuration required
+  by the selected `image_picker`/`file_picker` plugin versions. Camera access
+  and file/photo access may require runtime permissions depending on the
+  Android API level and plugin implementation; verify the generated manifest
+  and request flow on target devices.
+- Web uses browser file/camera picker capabilities and browser permission
+  prompts; native `Info.plist` and Android manifest entries do not apply.

@@ -1,10 +1,15 @@
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../core/routing/route_paths.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../models/chat_attachment.dart';
 import '../../models/recommendation.dart';
 import '../../state/chat_providers.dart';
 import '../../widgets/chat_bubble.dart';
@@ -55,6 +60,80 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _scrollToBottom();
   }
 
+  Future<void> _pickImage(ImageSource source) async {
+    final picked = await ImagePicker().pickImage(source: source);
+    if (picked == null) return;
+    await _selectAttachment(ChatAttachment(
+      fileName: picked.name,
+      bytes: Uint8List.fromList(await picked.readAsBytes()),
+      mimeType: _mimeForName(picked.name),
+    ));
+  }
+
+  Future<void> _pickFile() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ChatAttachmentValidator.supportedExtensions.toList(),
+      withData: true,
+    );
+    final file = result?.files.single;
+    if (file?.bytes == null) return;
+    await _selectAttachment(ChatAttachment(
+      fileName: file!.name,
+      bytes: file.bytes!,
+      mimeType: _mimeForName(file.name),
+    ));
+  }
+
+  Future<void> _selectAttachment(ChatAttachment attachment) {
+    return ref.read(chatFlowProvider.notifier).selectAttachment(attachment);
+  }
+
+  String _mimeForName(String name) {
+    return switch (name.split('.').last.toLowerCase()) {
+      'jpg' || 'jpeg' => 'image/jpeg',
+      'png' => 'image/png',
+      'webp' => 'image/webp',
+      _ => 'application/octet-stream',
+    };
+  }
+
+  Future<void> _showAttachmentMenu() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.camera_alt_outlined),
+              title: const Text('Ambil foto'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickImage(ImageSource.camera);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Pilih dari galeri'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickImage(ImageSource.gallery);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.folder_open_outlined),
+              title: const Text('Pilih file'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickFile();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _confirmAndCalculate(ItemInputDraft? patch) async {
     final notifier = ref.read(chatFlowProvider.notifier);
     await notifier.confirm(patch: patch);
@@ -100,7 +179,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ),
               children: [
                 if (flow.messages.isEmpty) const _Opening(),
-                for (final message in flow.messages) ChatBubble(message: message),
+                for (final message in flow.messages)
+                  ChatBubble(message: message),
                 if (flow.consultation != null)
                   KnownFieldsCard(
                     item: flow.stateOrEmpty.item,
@@ -126,7 +206,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           _Composer(
             controller: _composer,
             busy: flow.isSending,
+            attachment: flow.attachment,
+            uploadProgress: flow.uploadProgress,
             onSend: _send,
+            onSendAttachment: () => ref
+                .read(chatFlowProvider.notifier)
+                .sendAttachment(text: _composer.text),
+            onRemoveAttachment: () =>
+                ref.read(chatFlowProvider.notifier).removeAttachment(),
+            onAttachment: _showAttachmentMenu,
             onManualForm: () => context.push(RoutePaths.vendorManualForm),
           ),
         ],
@@ -213,17 +301,101 @@ class _ErrorBanner extends StatelessWidget {
   }
 }
 
+class _AttachmentPreview extends StatelessWidget {
+  const _AttachmentPreview({
+    required this.attachment,
+    required this.progress,
+    required this.busy,
+    required this.onSend,
+    required this.onRemove,
+  });
+
+  final ChatAttachment attachment;
+  final double progress;
+  final bool busy;
+  final VoidCallback onSend;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: 'Lampiran gambar ${attachment.fileName}',
+      container: true,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+        padding: const EdgeInsets.all(AppSpacing.sm),
+        decoration: BoxDecoration(
+          color: AppColors.surfaceAlt,
+          borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+        ),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+              child: Image.memory(
+                attachment.bytes,
+                width: 56,
+                height: 56,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const Icon(Icons.image_outlined),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: busy
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Mengunggah gambar...'),
+                        const SizedBox(height: AppSpacing.xs),
+                        LinearProgressIndicator(value: progress),
+                      ],
+                    )
+                  : Text(
+                      'Lampiran gambar ${attachment.fileName}',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+            ),
+            if (!busy)
+              IconButton(
+                tooltip: 'Hapus lampiran',
+                onPressed: onRemove,
+                icon: const Icon(Icons.close_rounded),
+              ),
+            if (!busy)
+              IconButton.filled(
+                tooltip: 'Kirim gambar',
+                onPressed: onSend,
+                icon: const Icon(Icons.arrow_upward_rounded),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _Composer extends StatelessWidget {
   const _Composer({
     required this.controller,
     required this.busy,
+    required this.attachment,
+    required this.uploadProgress,
     required this.onSend,
+    required this.onSendAttachment,
+    required this.onRemoveAttachment,
+    required this.onAttachment,
     required this.onManualForm,
   });
 
   final TextEditingController controller;
   final bool busy;
+  final ChatAttachment? attachment;
+  final double uploadProgress;
   final VoidCallback onSend;
+  final VoidCallback onSendAttachment;
+  final VoidCallback onRemoveAttachment;
+  final VoidCallback onAttachment;
   final VoidCallback onManualForm;
 
   @override
@@ -244,9 +416,26 @@ class _Composer extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (attachment != null)
+            _AttachmentPreview(
+              attachment: attachment!,
+              progress: uploadProgress,
+              busy: busy,
+              onSend: onSendAttachment,
+              onRemove: onRemoveAttachment,
+            ),
           Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
+              SizedBox(
+                width: AppSpacing.minTouchTarget,
+                height: AppSpacing.minTouchTarget,
+                child: IconButton(
+                  tooltip: 'Lampirkan gambar',
+                  onPressed: busy || attachment != null ? null : onAttachment,
+                  icon: const Icon(Icons.attach_file_rounded),
+                ),
+              ),
               Expanded(
                 child: TextField(
                   controller: controller,
