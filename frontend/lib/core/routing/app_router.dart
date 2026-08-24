@@ -49,6 +49,17 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: RoutePaths.otp,
+        // go_router tidak menserialisasi `extra` ke URL, jadi reload halaman
+        // atau deep-link ke /otp kehilangan nomor HP. Tanpa nomor tidak ada
+        // yang bisa diverifikasi, jadi arahkan balik ke input nomor alih-alih
+        // crash saat cast null.
+        redirect: (context, state) {
+          final extra = state.extra as Map?;
+          if (extra == null || extra['phone'] is! String) {
+            return RoutePaths.phone;
+          }
+          return null;
+        },
         builder: (context, state) {
           final extra = (state.extra as Map?) ?? {};
           return OtpVerifyScreen(

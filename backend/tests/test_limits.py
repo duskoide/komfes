@@ -105,6 +105,18 @@ class CorsDefaultTest(unittest.TestCase):
         self.assertNotIn("*", origins)
         self.assertTrue(all(o.startswith("http://") for o in origins))
 
+    def test_default_allows_compose_frontend_origin(self):
+        # Frontend compose serves on HARGATURUN_WEB_PORT (default 3000); the
+        # browser blocks /api/auth/otp/verify without this origin in CORS.
+        previous = os.environ.pop("HARGATURUN_CORS_ORIGINS", None)
+        try:
+            origins = _cors_origins()
+        finally:
+            if previous is not None:
+                os.environ["HARGATURUN_CORS_ORIGINS"] = previous
+        self.assertIn("http://127.0.0.1:3000", origins)
+        self.assertIn("http://localhost:3000", origins)
+
     def test_configured_origins_win(self):
         previous = os.environ.get("HARGATURUN_CORS_ORIGINS")
         os.environ["HARGATURUN_CORS_ORIGINS"] = "https://app.example, https://b.example"
