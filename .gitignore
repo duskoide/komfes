@@ -2,7 +2,6 @@
 /.direnv/
 
 # Graphify-generated knowledge graph and reports
-/graphify-out/
 
 # Local SQLite runtime data
 /backend/data/
@@ -11,3 +10,5 @@
 __pycache__/
 *.py[cod]
 *$py.class
+
+graphify-out/
