@@ -35,6 +35,13 @@ class ChatLimits:
     model_url: str = "http://127.0.0.1:8080/v1"
     model_name: str = "hargaturun-qwen3.5-4b"
     max_body_bytes: int = 64 * 1024
+    image_max_bytes: int = 5 * 1024 * 1024
+    image_max_pixels: int = 12_000_000
+    image_max_width: int = 6000
+    image_max_height: int = 6000
+    image_max_frames: int = 1
+    image_max_decoded_bytes: int = 48 * 1024 * 1024
+    image_temp_ttl_seconds: int = 300
     inference_timeout_seconds: float = 20.0
     model_timeout_seconds: float = 20.0
     max_turns: int = 20
@@ -53,6 +60,17 @@ class ChatLimits:
             model_url=os.getenv("HARGATURUN_MODEL_URL", cls.model_url),
             model_name=os.getenv("HARGATURUN_MODEL_NAME", cls.model_name),
             max_body_bytes=_env_int("HARGATURUN_MAX_BODY_BYTES", cls.max_body_bytes, minimum=1),
+            image_max_bytes=_env_int("HARGATURUN_IMAGE_MAX_BYTES", cls.image_max_bytes, minimum=1),
+            image_max_pixels=_env_int("HARGATURUN_IMAGE_MAX_PIXELS", cls.image_max_pixels, minimum=1),
+            image_max_width=_env_int("HARGATURUN_IMAGE_MAX_WIDTH", cls.image_max_width, minimum=1),
+            image_max_height=_env_int("HARGATURUN_IMAGE_MAX_HEIGHT", cls.image_max_height, minimum=1),
+            image_max_frames=_env_int("HARGATURUN_IMAGE_MAX_FRAMES", cls.image_max_frames, minimum=1),
+            image_max_decoded_bytes=_env_int(
+                "HARGATURUN_IMAGE_MAX_DECODED_BYTES", cls.image_max_decoded_bytes, minimum=1
+            ),
+            image_temp_ttl_seconds=_env_int(
+                "HARGATURUN_IMAGE_TEMP_TTL_SECONDS", cls.image_temp_ttl_seconds, minimum=1
+            ),
 
             inference_timeout_seconds=_env_float(
                 "HARGATURUN_INFERENCE_TIMEOUT_SECONDS",
@@ -118,17 +136,33 @@ class BodySizeLimitMiddleware:
     lying or absent header cannot get a large body past the check.
     """
 
-    def __init__(self, app: ASGIApp, *, max_bytes: int = 64 * 1024) -> None:
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        max_bytes: int = 64 * 1024,
+        multipart_max_bytes: int | None = None,
+    ) -> None:
         self.app = app
         self.max_bytes = max_bytes
+        self.multipart_max_bytes = multipart_max_bytes or max_bytes
+
+    def _max_for_scope(self, scope: Scope) -> int:
+        content_type = dict(scope.get("headers", [])).get(b"content-type", b"").lower()
+        return (
+            self.multipart_max_bytes
+            if content_type.startswith(b"multipart/form-data")
+            else self.max_bytes
+        )
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
 
+        max_bytes = self._max_for_scope(scope)
         declared = _content_length(scope)
-        if declared is not None and declared > self.max_bytes:
+        if declared is not None and declared > max_bytes:
             await _reject(send, 413, "Permintaan terlalu besar.")
             return
 
@@ -140,7 +174,7 @@ class BodySizeLimitMiddleware:
             message = await receive()
             if message["type"] == "http.request":
                 seen += len(message.get("body", b""))
-                if seen > self.max_bytes:
+                if seen > max_bytes:
                     # Raise while Starlette is still reading the body. This
                     # guarantees a stable 413 instead of a parser-specific
                     # 400/422 response for chunked or lying requests.
@@ -166,7 +200,7 @@ class RateLimitMiddleware:
         *,
         limit: int = 30,
         window_seconds: float = 60.0,
-        paths: Iterable[str] = ("/api/chat", "/api/recommend"),
+        paths: Iterable[str] = ("/api/chat", "/api/chat/image", "/api/recommend"),
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.app = app

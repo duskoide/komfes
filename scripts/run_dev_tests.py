@@ -81,10 +81,10 @@ def run_backend_unit(verbose: bool = False) -> StepResult:
     start = time.time()
     pytest_bin = shutil.which("pytest")
     cmd: list[str]
-    if pytest_bin:
-        cmd = [pytest_bin, "-q", "-m", "not (integration or real_model or compose)"]
-    elif shutil.which("uv"):
+    if shutil.which("uv"):
         cmd = ["uv", "run", "pytest", "-q", "-m", "not (integration or real_model or compose)"]
+    elif pytest_bin:
+        cmd = [pytest_bin, "-q", "-m", "not (integration or real_model or compose)"]
     else:
         cmd = [sys.executable, "-m", "unittest", "discover", "tests"]
 
@@ -145,10 +145,10 @@ def run_integration(verbose: bool = False) -> StepResult:
     start = time.time()
     pytest_bin = shutil.which("pytest")
     cmd: list[str]
-    if pytest_bin:
-        cmd = [pytest_bin, "-q", "-m", "integration"]
-    elif shutil.which("uv"):
+    if shutil.which("uv"):
         cmd = ["uv", "run", "pytest", "-q", "-m", "integration"]
+    elif pytest_bin:
+        cmd = [pytest_bin, "-q", "-m", "integration"]
     else:
         cmd = [sys.executable, "-m", "unittest", "tests/test_chat_integration.py"]
 

@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Response, status
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -38,6 +38,13 @@ from .consultation import (
 )
 from .database import Database
 from .inference_worker import InferenceRequest, run_inference_worker
+from .image_ingestion import (
+    ImageIngestionError,
+    ImageLimits,
+    decode_data_uri,
+    normalize_image,
+    reject_remote_url,
+)
 from .limits import BodySizeLimitMiddleware, ChatLimits, RateLimitMiddleware
 from .model_client import ModelContractError, ModelUnavailable, OpenAICompatibleModel, TextModel
 from .pricing import (
@@ -118,6 +125,13 @@ class ChatRequest(StrictModel):
     action: str = Field(default="message", min_length=1, max_length=32)
     text: str | None = Field(default=None, max_length=1000)
     patch: dict[str, Any] | None = None
+    image_data_uri: str | None = Field(default=None, max_length=7_500_000)
+
+
+class ImageChatForm(StrictModel):
+    session_id: str | None = Field(default=None, min_length=1, max_length=64)
+    action: str = Field(default="message", min_length=1, max_length=32)
+    text: str | None = Field(default=None, max_length=1000)
 
 
 def create_app(
@@ -126,6 +140,15 @@ def create_app(
     model: TextModel | None = None,
 ) -> FastAPI:
     limits = ChatLimits.from_env()
+    image_limits = ImageLimits(
+        max_bytes=limits.image_max_bytes,
+        max_pixels=limits.image_max_pixels,
+        max_width=limits.image_max_width,
+        max_height=limits.image_max_height,
+        max_frames=limits.image_max_frames,
+        max_decoded_bytes=limits.image_max_decoded_bytes,
+        temp_ttl_seconds=limits.image_temp_ttl_seconds,
+    )
     database = Database(database_path or os.getenv("HARGATURUN_DB", "data/hargaturun.db"))
 
     @asynccontextmanager
@@ -163,6 +186,7 @@ def create_app(
     app.add_middleware(
         BodySizeLimitMiddleware,
         max_bytes=limits.max_body_bytes,
+        multipart_max_bytes=max(limits.max_body_bytes, limits.image_max_bytes + 64 * 1024),
     )
 
     @app.get("/api/health")
@@ -274,6 +298,21 @@ def create_app(
 
     @app.post("/api/chat", response_model=None)
     async def chat(payload: ChatRequest):
+        normalized = None
+        if payload.image_data_uri is not None:
+            try:
+                raw, media_type = decode_data_uri(payload.image_data_uri, image_limits)
+                normalized = normalize_image(raw, media_type, image_limits)
+                payload = payload.model_copy(update={"image_data_uri": normalized.data_uri()})
+            except ImageIngestionError:
+                return JSONResponse(status_code=422, content={"detail": "Gambar tidak valid."})
+        try:
+            return await _chat_turn(payload)
+        finally:
+            if normalized is not None:
+                normalized.cleanup()
+
+    async def _chat_turn(payload: ChatRequest):
         """One synchronous consultation turn.
 
         Every decision below is taken by code. The model is asked only to
@@ -318,18 +357,34 @@ def create_app(
         # --- gather a proposed patch ------------------------------------- #
         proposed: object = {}
         if payload.action == "message":
-            if not (payload.text or "").strip():
+            if not (payload.text or "").strip() and payload.image_data_uri is None:
                 return JSONResponse(
                     status_code=422,
                     content={"detail": "Pesan tidak boleh kosong."},
                 )
             try:
-                parsed = await _run_inference(
-                    app.state.model.parse,
-                    payload.text,
-                    timeout=limits.inference_timeout_seconds,
-                )
-                proposed = parsed.get("parsed_input", {})
+                if payload.image_data_uri is not None:
+                    parser = getattr(app.state.model, "parse_multimodal")
+                    parsed = await _run_inference(
+                        parser,
+                        payload.text or "",
+                        payload.image_data_uri,
+                        timeout=limits.inference_timeout_seconds,
+                    )
+                    parsed_input = parsed.get("parsed_input", {})
+                    proposed = _image_safe_proposal(parsed_input)
+                    # Images never establish pricing facts.
+                    proposed = {
+                        key: value for key, value in proposed.items()
+                        if key not in {"original_price", "cost", "daily_sales"}
+                    }
+                else:
+                    parsed = await _run_inference(
+                        app.state.model.parse,
+                        payload.text or "",
+                        timeout=limits.inference_timeout_seconds,
+                    )
+                    proposed = parsed.get("parsed_input", {})
             except Exception:
                 # State survives an outage: nothing is merged, nothing is lost.
                 # Provider details are intentionally not returned.
@@ -386,6 +441,40 @@ def create_app(
             action = EXPLAIN_RESULT
 
         return _chat_response(session, action=action, message=_prompt_for(action, session))
+
+    @app.post("/api/chat/image", response_model=None)
+    async def chat_image(
+        session_id: str | None = Form(default=None),
+        action: str = Form(default="message"),
+        text: str | None = Form(default=None),
+        image: UploadFile = File(...),
+        image_url: str | None = Form(default=None),
+    ):
+        """Bounded multipart image variant; bytes are validated before inference."""
+        if image_url is not None:
+            try:
+                reject_remote_url(image_url)
+            except ImageIngestionError:
+                return JSONResponse(status_code=422, content={"detail": "Gambar tidak valid."})
+        try:
+            raw = await image.read(limits.image_max_bytes + 1)
+            normalized = normalize_image(raw, image.content_type, image_limits)
+        except ImageIngestionError:
+            return JSONResponse(status_code=422, content={"detail": "Gambar tidak valid."})
+        try:
+            if action != "message":
+                return JSONResponse(status_code=422, content={"detail": "Aksi tidak dikenal."})
+            if not (text or "").strip():
+                text = "Ekstrak fakta eksplisit dari gambar saja."
+            payload = ChatRequest(
+                session_id=session_id,
+                action=action,
+                text=text,
+                image_data_uri=normalized.data_uri(),
+            )
+            return await chat(payload)
+        finally:
+            normalized.cleanup()
 
     @app.post("/api/auth/otp/request", status_code=204)
     def request_otp(_: PhoneRequest) -> Response:
@@ -588,13 +677,24 @@ _FIELD_LABELS = {
 }
 
 
-def _prompt_for(action: str, session: Any) -> str:
-    """Assistant copy chosen by action, not generated by the model.
+def _image_safe_proposal(proposed: object) -> dict[str, Any]:
+    """Keep image extraction advisory and never accept economic guesses.
 
-    Keeping these deterministic means an outage or a contract failure still
-    produces sensible Indonesian, and no unsupported number can appear in the
-    prose because none of it is written by the model.
+    The model may identify labels/names and unambiguous physical facts, but
+    image-derived cost and sales-rate values can never enter consultation state.
+    Confirmation remains required because this is still model output.
     """
+    if not isinstance(proposed, dict):
+        return {}
+    allowed = {
+        "item_name", "category", "stock", "days_remaining",
+        "total_shelf_life", "shop_name",
+    }
+    return {key: value for key, value in proposed.items() if key in allowed}
+
+
+def _prompt_for(action: str, session: Any) -> str:
+    """Assistant copy chosen by action, not generated by the model."""
     state = session.state
     if action == ASK_FOR_MISSING_FIELDS:
         missing = [_FIELD_LABELS.get(f, f) for f in state.missing_fields()]
@@ -602,20 +702,20 @@ def _prompt_for(action: str, session: Any) -> str:
             return "Sudah lengkap."
         if len(missing) == 1:
             return f"Tinggal satu lagi: {missing[0]}?"
-        # Grouped question: everything still needed is asked at once.
         return "Tinggal beberapa ini: " + ", ".join(missing) + "."
     if action == SHOW_CONFIRMATION:
         return "Semua sudah kucatat. Cek dulu, kalau ada yang salah perbaiki."
     if action == EXPLAIN_RESULT:
-        status = session.result_status
-        if status == STATUS_RECOMMENDATION:
+        if session.result_status == STATUS_RECOMMENDATION:
             return "Ini rekomendasinya."
-        if status == STATUS_NO_ACTION:
+        if session.result_status == STATUS_NO_ACTION:
             return "Barang ini belum perlu didiskon."
         return "Ada yang perlu diperiksa dulu."
     if action == OUT_OF_SCOPE:
         return "Aku cuma bisa bantu soal harga diskon satu barang."
     return "Ada kendala di sistem. Datamu tetap tersimpan."
+
+
 
 
 async def _result_payload(

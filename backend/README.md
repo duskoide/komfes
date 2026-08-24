@@ -61,11 +61,15 @@ to `http://127.0.0.1:8000`. Useful environment values:
 - `HARGATURUN_INFERENCE_TIMEOUT_SECONDS=20` (cancellable `/api/chat` inference budget)
 - `HARGATURUN_MAX_BODY_BYTES=65536` (requests above this get `413` while streaming)
 - `HARGATURUN_MAX_TURNS=20` / `HARGATURUN_MAX_CONTEXT_CHARS=12000` (per-session chat budget)
-- `HARGATURUN_MAX_OUTPUT_TOKENS=350` (bounded model output; capped at 512)
-- `HARGATURUN_MAX_SESSIONS=200` (bounded in-memory consultation sessions)
+- `HARGATURUN_IMAGE_MAX_BYTES=5242880` (image bytes, before decode)
+- `HARGATURUN_IMAGE_MAX_PIXELS=12000000`, `HARGATURUN_IMAGE_MAX_WIDTH=6000`,
+  `HARGATURUN_IMAGE_MAX_HEIGHT=6000`, `HARGATURUN_IMAGE_MAX_FRAMES=1`,
+  `HARGATURUN_IMAGE_MAX_DECODED_BYTES=50331648`
+- `HARGATURUN_IMAGE_TEMP_DIR` (optional private operator path) and
+  `HARGATURUN_IMAGE_TEMP_TTL_SECONDS=300`
 - `HARGATURUN_RATE_LIMIT=30` / `HARGATURUN_RATE_WINDOW=60` (per client address,
-  applied to `/api/chat` and `/api/recommend` only; health probes are never
-  throttled, and exceeding it returns `429`)
+  applied to `/api/chat`, `/api/chat/image`, and `/api/recommend`; health probes
+  are never throttled, and exceeding it returns `429`)
 - Default logs contain only event/action metadata; message text, image data,
   personal data, prompts, and provider errors are never logged. Enable any
   local debug instrumentation explicitly and keep it out of production.
