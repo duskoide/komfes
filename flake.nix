@@ -11,7 +11,13 @@
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
           packages = with pkgs; [
-          flutter
+            flutter
+            (python3.withPackages (pythonPackages: with pythonPackages; [
+              fastapi
+              httpx
+              pytest
+              uvicorn
+            ]))
           ];
         };
       });

@@ -901,8 +901,11 @@ def _cors_origins() -> list[str]:
     if configured:
         return [origin.strip() for origin in configured.split(",") if origin.strip()]
     # Default lokal, bukan wildcard: origin produksi harus dinyatakan eksplisit
-    # lewat HARGATURUN_CORS_ORIGINS.
+    # lewat HARGATURUN_CORS_ORIGINS. Port 3000 = frontend compose (HARGATURUN_WEB_PORT),
+    # 5555 = `flutter run` dev server, 8080 = build web lokal.
     return [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
         "http://localhost:5555",
         "http://127.0.0.1:5555",
         "http://localhost:8080",
