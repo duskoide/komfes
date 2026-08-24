@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
@@ -26,6 +27,57 @@ class ApiClient {
 
   Future<ApiResponse> post(String path, {Map<String, dynamic>? body}) {
     return _send('POST', path, body: body);
+  }
+
+  Future<ApiResponse> postMultipart(
+    String path, {
+    required Map<String, String?> fields,
+    required String fileField,
+    required String fileName,
+    required Uint8List bytes,
+    required String contentType,
+    void Function(int sent, int total)? onProgress,
+  }) async {
+    final request = http.MultipartRequest('POST', Uri.parse('$baseUrl$path'))
+      ..headers.addAll({
+        'Accept': 'application/json',
+        if (bearerToken != null) 'Authorization': 'Bearer $bearerToken',
+      })
+      ..fields.addAll({
+        for (final entry in fields.entries)
+          if (entry.value != null) entry.key: entry.value!,
+      })
+      ..files.add(http.MultipartFile(
+        fileField,
+        _progressStream(bytes, onProgress),
+        bytes.length,
+        filename: fileName,
+        contentType: _mediaType(contentType),
+      ));
+
+    try {
+      final streamed = await _client.send(request);
+      final chunks = <int>[];
+      await for (final chunk in streamed.stream) {
+        chunks.addAll(chunk);
+      }
+      final response = http.Response.bytes(
+        Uint8List.fromList(chunks),
+        streamed.statusCode,
+        headers: streamed.headers,
+        request: request,
+      );
+      final decoded = response.body.isEmpty ? null : jsonDecode(response.body);
+      return ApiResponse(response.statusCode, decoded);
+    } on SocketException {
+      throw const NetworkOfflineException();
+    } on HttpException {
+      throw const RequestFailedException();
+    } on FormatException {
+      throw const RequestFailedException('Respons server tidak valid.');
+    } on http.ClientException {
+      throw const RequestFailedException('Tidak dapat terhubung ke server.');
+    }
   }
 
   Future<ApiResponse> delete(String path) => _send('DELETE', path);
@@ -82,6 +134,28 @@ class ApiClient {
   }
 
   void close() => _client.close();
+
+  Stream<List<int>> _progressStream(
+    Uint8List bytes,
+    void Function(int sent, int total)? onProgress,
+  ) async* {
+    const chunkSize = 16 * 1024;
+    var sent = 0;
+    for (var offset = 0; offset < bytes.length; offset += chunkSize) {
+      final end = (offset + chunkSize).clamp(0, bytes.length);
+      final chunk = bytes.sublist(offset, end);
+      sent += chunk.length;
+      onProgress?.call(sent, bytes.length);
+      yield chunk;
+    }
+  }
+
+  http.MediaType _mediaType(String value) {
+    final parts = value.split('/');
+    return parts.length == 2
+        ? http.MediaType(parts[0], parts[1])
+        : http.MediaType('application', 'octet-stream');
+  }
 }
 
 class ApiResponse {

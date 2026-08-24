@@ -1,17 +1,76 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:hargaturun/models/chat_attachment.dart';
 import 'package:hargaturun/models/enums.dart';
 import 'package:hargaturun/models/recommendation.dart';
 import 'package:hargaturun/models/user.dart';
 import 'package:hargaturun/services/api_client.dart';
 import 'package:hargaturun/services/auth_repository.dart';
+import 'package:hargaturun/services/chat_repository.dart';
 import 'package:hargaturun/services/deal_repository.dart';
 import 'package:hargaturun/services/recommend_repository.dart';
 
+class _RecordingClient extends http.BaseClient {
+  _RecordingClient(this.onRequest);
+
+  final void Function(http.BaseRequest request) onRequest;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    onRequest(request);
+    return http.StreamedResponse(
+      Stream.value(
+        utf8.encode(
+          jsonEncode({
+            'session_id': 'sesi-1',
+            'action': 'ASK_FOR_MISSING_FIELDS',
+            'assistant_message': 'Siap.',
+            'state': {},
+          }),
+        ),
+      ),
+      200,
+      request: request,
+    );
+  }
+}
+
 void main() {
+  test('chat image repository sends multipart bytes without a local path',
+      () async {
+    late http.BaseRequest request;
+    final api = ApiClient(
+      baseUrl: 'http://test',
+      client: _RecordingClient((value) => request = value),
+    );
+    final repository = HttpChatRepository(api);
+    final attachment = ChatAttachment(
+      fileName: 'stok.png',
+      bytes: Uint8List.fromList([1, 2, 3]),
+      mimeType: 'image/png',
+    );
+
+    await repository.sendImage(
+      attachment: attachment,
+      sessionId: 'sesi-1',
+      text: 'Lihat stok ini',
+    );
+
+    expect(request.url.path, '/api/chat/image');
+    expect(request, isA<http.MultipartRequest>());
+    final multipart = request as http.MultipartRequest;
+    expect(multipart.fields['session_id'], 'sesi-1');
+    expect(multipart.fields['action'], 'message');
+    expect(multipart.fields['text'], 'Lihat stok ini');
+    expect(multipart.files.single.field, 'image');
+    expect(multipart.files.single.filename, 'stok.png');
+    expect(multipart.files.single.filename, isNot(contains('/')));
+  });
+
   test('recommendation repository parses an oracle response', () async {
     final api = ApiClient(
       baseUrl: 'http://test',

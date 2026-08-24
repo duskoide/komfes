@@ -41,6 +41,14 @@ void main() {
   }
 
   group('pengiriman pesan', () {
+    testWidgets('primary chat flow has no form mode toggle', (tester) async {
+        await pumpChat(tester);
+
+        expect(find.text('Ketik Bebas'), findsNothing);
+        expect(find.text('Isi Form'), findsNothing);
+        expect(find.text('Isi form manual'), findsOneWidget);
+      });
+
     testWidgets('menampilkan pesan vendor lalu balasan asisten', (tester) async {
       repo.nextTurn = askForMissingTurn();
       await pumpChat(tester);

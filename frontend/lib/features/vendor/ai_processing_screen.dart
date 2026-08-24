@@ -102,7 +102,7 @@ class _AiProcessingScreenState extends ConsumerState<AiProcessingScreen> {
 
   /// Kembali ke V-02 tanpa membuang apa pun yang sudah diisi vendor.
   void _backToInput() {
-    context.pushReplacement(RoutePaths.vendorCheckItem, extra: widget.draft);
+    context.pushReplacement(RoutePaths.vendorManualForm, extra: widget.draft);
   }
 
   @override

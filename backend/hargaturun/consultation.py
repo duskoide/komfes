@@ -305,6 +305,16 @@ class Session:
     state: ConsultationState = field(default_factory=ConsultationState)
     result: dict[str, Any] | None = None
     result_status: str | None = None
+    turns: int = 0
+    context_chars: int = 0
+
+    def accept_turn(self, action: str, text_chars: int, *, max_turns: int, max_context_chars: int) -> bool:
+        next_chars = self.context_chars + text_chars
+        if action != "reset" and (self.turns >= max_turns or next_chars > max_context_chars):
+            return False
+        self.turns += 1
+        self.context_chars = next_chars
+        return True
 
     def drop_result(self) -> None:
         self.result = None
@@ -318,9 +328,17 @@ class SessionStore:
     client-supplied id is a memory-growth vector.
     """
 
-    def __init__(self, max_sessions: int = 200) -> None:
+    def __init__(
+        self,
+        max_sessions: int = 200,
+        *,
+        max_turns: int = 20,
+        max_context_chars: int = 12_000,
+    ) -> None:
         self._sessions: dict[str, Session] = {}
         self._max = max_sessions
+        self._max_turns = max_turns
+        self._max_context_chars = max_context_chars
 
     def create(self) -> Session:
         if len(self._sessions) >= self._max:
@@ -336,6 +354,15 @@ class SessionStore:
 
     def drop(self, session_id: str) -> None:
         self._sessions.pop(session_id, None)
+
+    def accept_turn(self, session_id: str, action: str, text_chars: int) -> bool:
+        session = self._sessions.get(session_id)
+        return session is not None and session.accept_turn(
+            action,
+            text_chars,
+            max_turns=self._max_turns,
+            max_context_chars=self._max_context_chars,
+        )
 
     def __len__(self) -> int:  # pragma: no cover - trivial
         return len(self._sessions)

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:hargaturun/models/chat.dart';
+import 'package:hargaturun/models/chat_attachment.dart';
 import 'package:hargaturun/models/recommendation.dart';
 import 'package:hargaturun/services/chat_repository.dart';
 
@@ -36,6 +37,37 @@ class FakeChatRepository implements ChatRepository {
   Object? error;
 
   ChatTurn? nextTurn;
+  final List<ChatTurn> queuedTurns = [];
+  ChatAttachment? lastAttachment;
+
+  @override
+  Future<ChatTurn> sendImage({
+    required ChatAttachment attachment,
+    String? sessionId,
+    String? text,
+    void Function(int sent, int total)? onProgress,
+  }) {
+    calls.add(RecordedCall(
+      action: ChatRequestAction.message,
+      sessionId: sessionId,
+      text: text,
+    ));
+    lastAttachment = attachment;
+    onProgress?.call(attachment.sizeInBytes ~/ 2, attachment.sizeInBytes);
+    final gate = pending;
+    if (gate != null) {
+      pending = null;
+      return gate.future;
+    }
+    final failure = error;
+    if (failure != null) {
+      error = null;
+      return Future<ChatTurn>.error(failure);
+    }
+    onProgress?.call(attachment.sizeInBytes, attachment.sizeInBytes);
+    final turn = queuedTurns.isNotEmpty ? queuedTurns.removeAt(0) : nextTurn;
+    return Future.value(turn);
+  }
 
   @override
   Future<ChatTurn> send({
@@ -61,7 +93,8 @@ class FakeChatRepository implements ChatRepository {
       error = null;
       return Future<ChatTurn>.error(failure);
     }
-    return Future.value(nextTurn);
+    final turn = queuedTurns.isNotEmpty ? queuedTurns.removeAt(0) : nextTurn;
+    return Future.value(turn);
   }
 }
 

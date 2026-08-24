@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -10,6 +9,7 @@ from typing import Protocol
 from .schemas import (
     PARSE_REQUIRED_FIELDS,
     PARSE_SYSTEM_PROMPT,
+    MULTIMODAL_PARSE_SYSTEM_PROMPT,
     WRITE_SYSTEM_PROMPT,
     allowed_numbers_for,
     validate_parse_output,
@@ -33,9 +33,10 @@ class TextModel(Protocol):
 
 @dataclass(frozen=True)
 class OpenAICompatibleModel:
-    base_url: str = os.getenv("HARGATURUN_MODEL_URL", "http://127.0.0.1:8080/v1")
-    model: str = os.getenv("HARGATURUN_MODEL_NAME", "hargaturun-qwen3.5-4b")
-    timeout: float = float(os.getenv("HARGATURUN_MODEL_TIMEOUT", "20"))
+    base_url: str = "http://127.0.0.1:8080/v1"
+    model: str = "hargaturun-qwen3.5-4b"
+    timeout: float = 20.0
+    max_output_tokens: int = 350
 
     def parse(self, free_text: str) -> dict:
         output = _normalize_parse_bookkeeping(
@@ -64,6 +65,15 @@ class OpenAICompatibleModel:
             raise ModelContractError("; ".join(errors))
         return output
 
+    def parse_multimodal(self, text: str, image_data_uri: str) -> dict:
+        output = _normalize_parse_bookkeeping(
+            self._complete_multimodal(MULTIMODAL_PARSE_SYSTEM_PROMPT, text, image_data_uri)
+        )
+        errors = validate_parse_output(output)
+        if errors:
+            raise ModelContractError("; ".join(errors))
+        return output
+
     def write(self, normalized_input: dict, engine_result: dict) -> dict:
         payload = json.dumps(
             {"normalized_input": normalized_input, "engine_result": engine_result},
@@ -72,11 +82,7 @@ class OpenAICompatibleModel:
         )
         output = self._complete(WRITE_SYSTEM_PROMPT, payload)
         allowed_numbers = allowed_numbers_for(normalized_input, engine_result)
-        errors = validate_write_output(
-            output,
-            allowed_numbers,
-            engine_result.get("status"),
-        )
+        errors = validate_write_output(output, allowed_numbers, engine_result.get("status"))
         if errors:
             repair_payload = json.dumps(
                 {
@@ -95,27 +101,34 @@ class OpenAICompatibleModel:
                 separators=(",", ":"),
             )
             output = self._complete(WRITE_SYSTEM_PROMPT, repair_payload)
-            errors = validate_write_output(
-                output,
-                allowed_numbers,
-                engine_result.get("status"),
-            )
+            errors = validate_write_output(output, allowed_numbers, engine_result.get("status"))
         if errors:
             raise ModelContractError("; ".join(errors))
         return output
 
-    def _complete(self, system: str, user: str) -> dict:
+
+    def _complete_multimodal(self, system: str, text: str, image_data_uri: str) -> dict:
+        return self._complete(
+            system,
+            [
+                {"type": "text", "text": text or "Ekstrak fakta eksplisit saja."},
+                {"type": "image_url", "image_url": {"url": image_data_uri}},
+            ],
+        )
+
+    def _complete(self, system: str, user: object) -> dict:
+        content = user
         body = json.dumps(
             {
                 "model": self.model,
                 "messages": [
                     {"role": "system", "content": system},
-                    {"role": "user", "content": user},
+                    {"role": "user", "content": content},
                 ],
                 "temperature": 0,
                 "top_p": 1,
                 "seed": 42,
-                "max_tokens": 350,
+                "max_tokens": self.max_output_tokens,
             },
             ensure_ascii=False,
         ).encode()

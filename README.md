@@ -5,7 +5,7 @@ Built for COMPFEST 18 — AI Innovation Challenge, *AI for the Backbone of the E
 
 A vendor describes at-risk food stock in everyday Indonesian. HargaTurun gathers only the missing facts, confirms what it understood, calls a deterministic pricing tool, and explains the resulting action. It is a **bounded, tool-backed chatbot**, not a general-purpose assistant.
 
-> **Implementation status:** the deterministic pricing oracle, strict model contracts, FastAPI/SQLite service, HTTP-backed Flutter web/PWA, and local Qwen llama.cpp baseline are implemented. The bounded multi-turn orchestrator, `POST /api/chat`, conversational chat UI, agent traces, and comparative agentic evaluation described below remain the next implementation target. The included base Qwen3.5-4B setup is for infrastructure validation; no fine-tuned artifact is claimed.
+> **Implementation status:** the deterministic pricing oracle, strict model contracts, FastAPI/SQLite service, HTTP-backed Flutter web/PWA, local Qwen llama.cpp baseline, bounded multi-turn chat, fallback form route, and tiered developer tests are implemented. The Compose llama.cpp service is private to the Compose network and pinned to the tested image digest. The included base Qwen3.5-4B setup is for infrastructure validation; no fine-tuned artifact is claimed.
 
 ## Product promise
 
@@ -137,13 +137,13 @@ This is more than a raw zero-shot API call. See [`docs/HargaTurun_Agentic_Workfl
 | Path | Status |
 |---|---|
 | `backend/hargaturun/pricing.py` | Implemented deterministic pricing authority |
-| `backend/hargaturun/api.py` | Implemented one-shot recommendation, demo auth/shop, deal, claim, and redemption API |
+| `backend/hargaturun/api.py` | Implemented one-shot recommendation, bounded chat, fail-closed request/session/inference limits, and generic model failures |
 | `backend/hargaturun/model_client.py` | Implemented validated OpenAI-compatible parse/write client with one repair attempt |
 | `backend/hargaturun/schemas.py` | Implemented strict one-shot parse/write contracts; must evolve into conversational patch/write contracts |
-| `frontend/` | Implemented Flutter web/PWA baseline using HTTP-backed repositories and structured cards |
+| `frontend/` | Implemented Flutter web/PWA baseline, primary chat flow, and separately routed manual accessibility/outage fallback |
 | `scripts/run-llama-server.sh` | Implemented local CUDA llama.cpp launcher for the temporary base GGUF |
-| Multi-turn chat orchestrator, `POST /api/chat`, and chat UI | Planned |
-| Full application Docker Compose | Planned |
+| Multi-turn chat orchestrator, `POST /api/chat`, and chat UI | Implemented; obsolete parsing/processing URLs redirect to `/vendor/chat` |
+| Compose model service | Private Compose-network service, tested llama.cpp digest pinned; localhost-only host exposure is not used in the full stack |
 | Agentic evaluation report | Planned |
 
 For a complete CUDA-enabled local stack, install Docker Compose and the NVIDIA
@@ -153,21 +153,71 @@ Container Toolkit, then run:
 docker compose up --build
 ```
 
-The first run downloads and verifies the temporary base Qwen GGUF when it is
-absent, builds the FastAPI and release Flutter containers with their pinned
-dependencies, and serves the app at `http://127.0.0.1:3000`. Model and SQLite
-data persist in named volumes. See [`backend/README.md`](backend/README.md) for
+The full-stack Compose file publishes only the API and frontend on loopback. The
+llama.cpp service has no `ports` entry and is reachable only as
+`http://llm-server:8080/v1` from the Compose network. Both Compose profiles pin
+`ghcr.io/ggml-org/llama.cpp:server-cuda` to the tested digest documented in
+`docs/HargaTurun_LLM_Server_Setup.md`.
+
+Model and SQLite data persist in named volumes. See [`backend/README.md`](backend/README.md) for
 configuration, native-development commands, and the base-model caveat.
 
-Run the implemented backend suite:
+## Developer Test Suite
+
+A tiered developer test runner is available at `scripts/run_dev_tests.py`:
 
 ```bash
-cd backend
-uv sync --extra dev
-uv run pytest -q
+# Tier 1 (Default): Fast deterministic backend unit tests + workflow safety replay (< 3s)
+python scripts/run_dev_tests.py
+
+# Tier 2: Backend checks + Flutter frontend widget & unit tests
+python scripts/run_dev_tests.py --tier 2
+
+# Tier 3: Live in-process wire integration tests with the dev stub server
+python scripts/run_dev_tests.py --tier 3
+
+# Tier 4: Explicit opt-in live local-model server & Compose smoke tests
+python scripts/run_dev_tests.py --real-model --compose
+
+# Tier 4 multimodal readiness plus one local image request (requires --mmproj server)
+HARGATURUN_MULTIMODAL_MODEL_URL=http://127.0.0.1:8080/v1 \
+python scripts/run_dev_tests.py --real-model --multimodal
+
+# Run all available tiers with strict failure on missing optional tools
+python scripts/run_dev_tests.py --tier all --strict
 ```
 
-See [`backend/README.md`](backend/README.md) for the model/API runbook and fast Flutter preview commands.
+| Tier | Scope | Prerequisites | Missing Behavior |
+|---|---|---|---|
+| **Tier 1** | Backend unit/contract tests, limits, safety replay | Python >= 3.11, pytest or uv | Fails (required core) |
+| **Tier 2** | Tier 1 + Frontend widget & unit tests | Flutter SDK | Skips frontend with `[SKIP]` notice unless `--strict` |
+| **Tier 3** | Multi-turn wire integration with loopback HTTP dev stub | Python >= 3.11 | Fails (required core) |
+| **Tier 4A** | Live local-model server readiness/text smoke; optional multimodal readiness + image request | Running model server at `:8080` | Skips with `[SKIP]` notice unless `--strict` |
+
+| **Tier 4B** | Compose stack configuration validation | Docker or Podman on PATH | Skips with `[SKIP]` notice unless `--strict` |
+
+You can also invoke component test runners directly:
+
+```bash
+# Backend unit & contract tests
+cd backend && uv run pytest -q -m "not (integration or real_model or compose)"
+
+# Live wire integration tests
+cd backend && uv run pytest -q -m integration
+
+# Deterministic safety evaluation replay
+python scripts/eval_agentic_workflow.py
+
+# Frontend widget & unit tests
+cd frontend && flutter test
+
+# Warm latency/VRAM hooks (print unavailable instead of fabricating values)
+python scripts/measure_llm_latency.py --url http://127.0.0.1:8080/v1 --count 20 --warmup 2
+# Against the explicitly enabled --mmproj server:
+python scripts/measure_llm_latency.py --url http://127.0.0.1:8080/v1 --image --count 20 --warmup 2
+```
+
+> **Issue #4 Scope Note:** The deterministic safety gates (zero premature tool calls, zero stale-result reuse, zero margin violations, result hash verification) are verified automatically. Natural language generation metrics and direct-chat baseline comparison (§8.1) remain explicitly marked as `not_measured` per the safety evaluation contract until competition evaluation artifacts are evaluated.
 
 ## Required submission evidence
 

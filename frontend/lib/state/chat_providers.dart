@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/chat.dart';
+import '../models/chat_attachment.dart';
 import '../models/recommendation.dart';
 import '../services/app_exception.dart';
 import '../services/chat_repository.dart';
@@ -20,11 +21,7 @@ class ChatMessage {
 
   final ChatAuthor author;
   final String text;
-
-  /// Aksi orchestrator yang menghasilkan pesan ini, kalau ada.
   final ChatAction? action;
-
-  /// Pesan vendor yang belum dikonfirmasi server.
   final bool isPending;
 
   ChatMessage settled() => ChatMessage(
@@ -46,6 +43,8 @@ class ChatFlowState {
     this.result,
     this.isSending = false,
     this.error,
+    this.attachment,
+    this.uploadProgress = 0,
   });
 
   final String? sessionId;
@@ -57,12 +56,12 @@ class ChatFlowState {
   final RecommendResult? result;
   final bool isSending;
   final AppException? error;
+  final ChatAttachment? attachment;
+  final double uploadProgress;
 
-  ConsultationState get stateOrEmpty => consultation ?? ConsultationState.empty();
-
-  /// Kartu konfirmasi hanya relevan saat orchestrator memintanya.
+  ConsultationState get stateOrEmpty =>
+      consultation ?? ConsultationState.empty();
   bool get showConfirmation => lastAction == ChatAction.showConfirmation;
-
   bool get hasResult => result != null;
 
   ChatFlowState copyWith({
@@ -77,6 +76,9 @@ class ChatFlowState {
     bool? isSending,
     AppException? error,
     bool clearError = false,
+    ChatAttachment? attachment,
+    bool clearAttachment = false,
+    double? uploadProgress,
   }) {
     return ChatFlowState(
       sessionId: sessionId ?? this.sessionId,
@@ -88,6 +90,8 @@ class ChatFlowState {
       result: clearResult ? null : (result ?? this.result),
       isSending: isSending ?? this.isSending,
       error: clearError ? null : (error ?? this.error),
+      attachment: clearAttachment ? null : (attachment ?? this.attachment),
+      uploadProgress: uploadProgress ?? this.uploadProgress,
     );
   }
 }
@@ -96,14 +100,91 @@ class ChatFlowNotifier extends StateNotifier<ChatFlowState> {
   ChatFlowNotifier(this._ref) : super(const ChatFlowState());
 
   final Ref _ref;
-
   ChatRepository get _repo => _ref.read(chatRepositoryProvider);
 
-  /// Teks terakhir yang dikirim vendor, dipakai untuk "Coba Lagi" tanpa
-  /// membuat dia mengetik ulang.
   String? _lastText;
   ChatRequestAction? _lastAction;
   ItemInputDraft? _lastPatch;
+  ChatAttachment? _lastAttachment;
+
+  Future<void> selectAttachment(ChatAttachment attachment) async {
+    final error = ChatAttachmentValidator.errorFor(attachment);
+    if (error != null) {
+      state = state.copyWith(error: InvalidInputException(error));
+      return;
+    }
+    if (state.attachment != null || state.isSending) return;
+    state = state.copyWith(
+      attachment: attachment,
+      clearError: true,
+      uploadProgress: 0,
+    );
+  }
+
+  void removeAttachment() {
+    if (!state.isSending) {
+      _lastAttachment = null;
+      state = state.copyWith(clearAttachment: true);
+    }
+  }
+
+  Future<void> sendAttachment({String? text, bool appendMessage = true}) async {
+    final attachment = state.attachment;
+    if (attachment == null || state.isSending) return;
+    _lastAttachment = attachment;
+    _lastText = text?.trim();
+    state = state.copyWith(
+      isSending: true,
+      clearError: true,
+      uploadProgress: 0,
+      messages: appendMessage
+          ? [
+              ...state.messages,
+              ChatMessage(
+                author: ChatAuthor.vendor,
+                text: _lastText?.isNotEmpty == true
+                    ? _lastText!
+                    : 'Lampiran gambar',
+                isPending: true,
+              ),
+            ]
+          : state.messages,
+    );
+    try {
+      final turn = await _repo.sendImage(
+        attachment: attachment,
+        sessionId: state.sessionId,
+        text: _lastText,
+        onProgress: (sent, total) {
+          if (total > 0) {
+            state = state.copyWith(uploadProgress: sent / total);
+          }
+        },
+      );
+      _applyTurn(turn);
+      _lastAttachment = null;
+      state = state.copyWith(clearAttachment: true, uploadProgress: 0);
+    } on AppException catch (e) {
+      state = state.copyWith(
+        isSending: false,
+        uploadProgress: 0,
+        error: e,
+      );
+    } catch (e) {
+      state = state.copyWith(
+        isSending: false,
+        uploadProgress: 0,
+        error: const RequestFailedException(),
+      );
+      if (kDebugMode) print('chat image error: $e');
+    }
+  }
+
+  Future<void> retryAttachment() async {
+    if (_lastAttachment == null || state.isSending) return;
+    state = state.copyWith(attachment: _lastAttachment, clearError: true);
+    await sendAttachment(text: _lastText, appendMessage: false);
+  }
 
   Future<void> sendMessage(String text) {
     final trimmed = text.trim();
@@ -112,36 +193,28 @@ class ChatFlowNotifier extends StateNotifier<ChatFlowState> {
     return _run(ChatRequestAction.message, text: trimmed);
   }
 
-  /// Vendor menekan konfirmasi. [patch] berisi field yang dia sunting di
-  /// kartu konfirmasi, boleh kosong kalau tidak ada yang diubah.
   Future<void> confirm({ItemInputDraft? patch}) =>
       _run(ChatRequestAction.confirm, patch: patch);
-
   Future<void> calculate() => _run(ChatRequestAction.calculate);
-
   Future<void> explain() => _run(ChatRequestAction.explain);
-
   Future<void> revisePromo(String instruction) =>
       _run(ChatRequestAction.revisePromo, text: instruction);
 
-  /// Mulai konsultasi baru. Server diberi tahu supaya sesinya ikut dibuang,
-  /// tapi kalau gagal pun state klien tetap dibersihkan.
   Future<void> reset() async {
     final sessionId = state.sessionId;
     state = const ChatFlowState();
     _lastText = null;
     _lastAction = null;
     _lastPatch = null;
+    _lastAttachment = null;
     if (sessionId == null) return;
     try {
       await _repo.send(action: ChatRequestAction.reset, sessionId: sessionId);
-    } on AppException catch (_) {
-      // Diabaikan dengan sengaja: sesi baru sudah dimulai di sisi klien.
-    }
+    } on AppException catch (_) {}
   }
 
-  /// Ulangi permintaan terakhir yang gagal.
   Future<void> retry() {
+    if (_lastAttachment != null) return retryAttachment();
     final action = _lastAction;
     if (action == null) return Future.value();
     return _run(action, text: _lastText, patch: _lastPatch);
@@ -174,7 +247,6 @@ class ChatFlowNotifier extends StateNotifier<ChatFlowState> {
     _lastAction = action;
     _lastText = text;
     _lastPatch = patch;
-
     state = state.copyWith(isSending: true, clearError: true);
     try {
       final turn = await _repo.send(
@@ -185,7 +257,6 @@ class ChatFlowNotifier extends StateNotifier<ChatFlowState> {
       );
       _applyTurn(turn);
     } on SessionExpiredException catch (e) {
-      // Sesi hilang di server: bersihkan dan katakan, jangan diam-diam gagal.
       state = const ChatFlowState();
       _appendSystem(e.message);
     } on AppException catch (e) {
@@ -209,11 +280,7 @@ class ChatFlowNotifier extends StateNotifier<ChatFlowState> {
           action: turn.action,
         ),
     ];
-
-    // freshResult sudah menolak hasil yang revisinya tidak lagi cocok, jadi
-    // koreksi vendor otomatis membuat hasil lama hilang dari layar.
     final fresh = turn.freshResult;
-
     state = state.copyWith(
       sessionId: turn.sessionId.isEmpty ? state.sessionId : turn.sessionId,
       messages: settled,
@@ -229,7 +296,6 @@ class ChatFlowNotifier extends StateNotifier<ChatFlowState> {
   }
 }
 
-final chatFlowProvider =
-    StateNotifierProvider<ChatFlowNotifier, ChatFlowState>(
+final chatFlowProvider = StateNotifierProvider<ChatFlowNotifier, ChatFlowState>(
   (ref) => ChatFlowNotifier(ref),
 );

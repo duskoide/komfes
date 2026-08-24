@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import unittest
 from unittest.mock import patch
 
@@ -24,8 +25,12 @@ ENGINE_RESULT = to_engine_result(
     compute(PricingInput("Bakery", 20000, 10000, 30, 1, 5, 4))
 )
 
-
 class ModelClientTest(unittest.TestCase):
+    def test_malformed_timeout_environment_does_not_break_direct_construction(self):
+        with patch.dict(os.environ, {"HARGATURUN_MODEL_TIMEOUT": "not-a-number"}):
+            model = OpenAICompatibleModel()
+        self.assertEqual(model.timeout, 20.0)
+
     def test_parse_normalizes_confirmation_bookkeeping_without_inventing_values(self):
         model = OpenAICompatibleModel()
         invalid = {

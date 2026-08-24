@@ -133,8 +133,18 @@ stale results stay invisible after a correction.
 state survived, so the client must not treat it as a transport error and must
 not discard the conversation.
 
-## Out of scope here
+## Image input extension
 
-Image input (issue #4 section 3) is not covered. When it lands it should extend
-this request with a multipart variant rather than change the JSON shape, so the
-text path stays untouched.
+The text JSON contract remains unchanged. Image turns use the bounded multipart
+endpoint `POST /api/chat/image` with form fields `session_id` (optional),
+`action=message`, `text` (optional), and one `image` file. An optional
+`image_url` field is rejected generically; the server never fetches URLs.
+Only JPEG, PNG, and WebP files whose declared media type matches their magic
+bytes and whose full Pillow decode succeeds are accepted. The server rejects
+oversized bytes/pixels, animated files, truncated/malformed files, and decode
+memory bombs, then re-encodes to metadata-free PNG in a private temporary
+folder before sending an OpenAI-compatible multimodal content-part request to
+the cancellable worker. The response is the normal chat response: image facts
+are proposals only, and confirmation remains mandatory. Image extraction never
+supplies `cost`, `daily_sales`, or pricing recommendations; ambiguous dates
+remain missing until the vendor resolves them.
