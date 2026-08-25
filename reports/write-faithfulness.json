@@ -1,0 +1,116 @@
+{
+  "system": "Gate 1 — write-path numerical faithfulness (real model)",
+  "plan_gate": "zero_unsupported_numerical_claims_after_validation (§8.4)",
+  "measurement": "measured",
+  "source": {
+    "evaluator_script": "scripts/eval_write_faithfulness.py",
+    "evaluator_script_sha256": "3537f22796eaec3fc60eb1d9021ae7ef78a33f0e3fc9462d452a7b5eddb23d8f",
+    "cases_file": "data/eval/consultations.jsonl",
+    "cases_file_sha256": "cf2b2047180733d4be0838aae2e48fd5ce819c8875818763430c99f98609d61e",
+    "commit": "4cc7f9f253db58bbaa4912ca0520afe0d1708457",
+    "working_tree_dirty": false
+  },
+  "model": {
+    "base_url": "http://127.0.0.1:8080/v1",
+    "served_model_name": "hargaturun-qwen3.5-4b",
+    "identity_note": "whatever the server serves; no fine-tuned artifact is claimed",
+    "write_prompt_version": "write-v2",
+    "temperature": 0,
+    "top_p": 1,
+    "seed": 42,
+    "max_output_tokens": 350
+  },
+  "denominators": {
+    "writable_cases": 10,
+    "accepted_outputs": 9
+  },
+  "counts": {
+    "valid_first_try": 7,
+    "valid_after_repair": 2,
+    "rejected_after_repair_numbers_only": 1,
+    "malformed_json": 0,
+    "unsupported_number_claims_before_validation": 3,
+    "unsupported_number_claims_after_validation": 0
+  },
+  "gate": {
+    "zero_unsupported_numerical_claims_after_validation": {
+      "measurement": "measured",
+      "status": "pass",
+      "count": 0,
+      "denominator": 9
+    }
+  },
+  "per_case": [
+    {
+      "case_id": "bakery-oversupply-a",
+      "scenario_id": "bakery-oversupply",
+      "engine_status": "recommendation",
+      "outcome": "valid_first_try",
+      "unsupported_initial": 0
+    },
+    {
+      "case_id": "dairy-no-action",
+      "scenario_id": "dairy-slow-mover",
+      "engine_status": "no_action",
+      "outcome": "rejected_after_repair",
+      "unsupported_initial": 1
+    },
+    {
+      "case_id": "prepared-expired",
+      "scenario_id": "prepared-food-expired",
+      "engine_status": "warning",
+      "outcome": "valid_first_try",
+      "unsupported_initial": 0
+    },
+    {
+      "case_id": "beverage-cost-above-price",
+      "scenario_id": "beverage-thin-margin",
+      "engine_status": "warning",
+      "outcome": "valid_first_try",
+      "unsupported_initial": 0
+    },
+    {
+      "case_id": "snack-two-messages",
+      "scenario_id": "snack-multi-fact",
+      "engine_status": "recommendation",
+      "outcome": "valid_first_try",
+      "unsupported_initial": 0
+    },
+    {
+      "case_id": "canned-default-shelf-life",
+      "scenario_id": "canned-shelf-life-default",
+      "engine_status": "recommendation",
+      "outcome": "valid_after_repair",
+      "unsupported_initial": 0
+    },
+    {
+      "case_id": "double-calculate-one-revision",
+      "scenario_id": "duplicate-calculate",
+      "engine_status": "recommendation",
+      "outcome": "valid_first_try",
+      "unsupported_initial": 0
+    },
+    {
+      "case_id": "other-recommendation",
+      "scenario_id": "other-category",
+      "engine_status": "recommendation",
+      "outcome": "valid_first_try",
+      "unsupported_initial": 0
+    },
+    {
+      "case_id": "snack-no-action-long-shelf",
+      "scenario_id": "snack-ample-runway",
+      "engine_status": "no_action",
+      "outcome": "valid_after_repair",
+      "unsupported_initial": 2
+    },
+    {
+      "case_id": "rejected-correction-preserves-result",
+      "scenario_id": "rejected-correction",
+      "engine_status": "recommendation",
+      "outcome": "valid_first_try",
+      "unsupported_initial": 0
+    }
+  ],
+  "raw_failures": []
+}

@@ -87,8 +87,11 @@ real run (placeholders are deliberately not measurements):
 Set `HARGATURUN_MODEL_SHA256` and, for the multimodal profile,
 `HARGATURUN_MMPROJ_SHA256`. The native launcher verifies any supplied 64-digit
 hash before starting; unset hashes produce an explicit `not verified` warning.
-The Compose full stack verifies the model during its download/init step. For a
-projector downloaded or copied by an operator, verify it before startup:
+The full-stack `compose.yml` `model-init` service checks the bind-mounted
+`models/` directory: if the model is already present it verifies the SHA-256 and
+skips the download; if it is absent it downloads the base GGUF into `models/`
+and verifies it before startup. For a projector downloaded or copied by an
+operator, verify it before startup:
 
 ```bash
 sha256sum models/hargaturun-qwen3.5-mmproj-f16.gguf
@@ -160,9 +163,23 @@ The Compose service expects exactly:
 models/hargaturun-qwen3.5-4b-q4_k_m.gguf
 ```
 
-The `models/` directory is intentionally ignored by Git because model files are too large for the repository.
+The `models/` directory is intentionally ignored by Git because model files are too large for the repository. It is bind-mounted into the Compose stack, so anything you place there is reused directly.
 
-### 4.1 Use an evaluated artifact
+### Already have the model? Place it in `models/`
+
+If you already have the GGUF on disk, put it at the expected path before starting. The full-stack `model-init` service detects it, verifies its SHA-256, and skips downloading:
+
+```bash
+# copy it in place
+cp /path/to/evaluated-model.Q4_K_M.gguf models/hargaturun-qwen3.5-4b-q4_k_m.gguf
+
+# or symlink a model kept elsewhere on disk
+ln -s /mnt/storage/models/Qwen3.5-4B-Q4_K_M.gguf models/hargaturun-qwen3.5-4b-q4_k_m.gguf
+```
+
+Use `HARGATURUN_MODEL_DIR` to point at a different host directory and `HARGATURUN_MODEL_FILE` to change the expected filename.
+
+### 5.1 Use an evaluated artifact
 
 Place the evaluated base or genuinely fine-tuned `Q4_K_M` GGUF at the expected path:
 
@@ -172,9 +189,9 @@ cp /path/to/evaluated-model.Q4_K_M.gguf models/hargaturun-qwen3.5-4b-q4_k_m.gguf
 
 A Transformers directory containing `.safetensors` is not directly loadable by `llama-server`; the server artifact must be GGUF. Record whether the file is base or fine-tuned, its source/license, evaluation report, and SHA-256. Never describe a base file as fine-tuned.
 
-### 4.2 Optional baseline-only download
+### 5.2 Optional baseline-only download
 
-Before the fine-tuned artifact exists, the following base quant can validate Docker, CUDA, Qwen3.5 support, and the HTTP contract:
+Before the fine-tuned artifact exists, the following base quant can validate Docker, CUDA, Qwen3.5 support, and the HTTP contract. In the full stack (`docker compose up --build`) this download happens automatically when `models/` is empty; you can also fetch it manually:
 
 ```bash
 curl --fail --location --progress-bar \
@@ -184,7 +201,7 @@ curl --fail --location --progress-bar \
 
 This downloaded model is an honest base-model artifact. It can be the runtime model for the selected agentic-workflow adaptation route, but it does not by itself prove customization. The submission evidence must demonstrate the implemented orchestrator, state, pricing-tool calls, validators, traces, and baseline comparison.
 
-### 4.3 Record artifact identity
+### 5.3 Record artifact identity
 
 Inspect and hash the chosen file:
 

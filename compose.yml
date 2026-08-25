@@ -10,7 +10,9 @@ services:
       MODEL_SHA256: ${HARGATURUN_MODEL_SHA256:-00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4}
       MODEL_FILE: ${HARGATURUN_MODEL_FILE:-hargaturun-qwen3.5-4b-q4_k_m.gguf}
     volumes:
-      - model-data:/models
+      # Bind-mount the host models directory so an operator-supplied GGUF is
+      # detected and reused. The file is only downloaded here when absent.
+      - ${HARGATURUN_MODEL_DIR:-./models}:/models
     command:
       - |
         target="/models/$${MODEL_FILE}"
@@ -24,7 +26,7 @@ services:
           echo "Existing model checksum mismatch: $${actual}" >&2
           exit 1
         fi
-        echo "Downloading base Qwen GGUF to Docker volume..."
+        echo "Model not found at $${target}; downloading base Qwen GGUF..."
         curl --fail --location --retry 5 --retry-delay 3 --continue-at - \
           --output "$${partial}" "$${MODEL_URL}"
         actual="$$(sha256sum "$${partial}" | awk '{print $$1}')"
@@ -44,7 +46,7 @@ services:
       model-init:
         condition: service_completed_successfully
     volumes:
-      - model-data:/models:ro
+      - ${HARGATURUN_MODEL_DIR:-./models}:/models:ro
     command:
     # Explicitly preserved full-stack model selection; standalone compose.llm.yml
     # provides the opt-in multimodal profile for image requests.
@@ -179,5 +181,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  model-data:
   app-data:

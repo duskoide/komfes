@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -39,6 +40,29 @@ sys.dont_write_bytecode = True
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BACKEND_DIR = REPO_ROOT / "backend"
 FRONTEND_DIR = REPO_ROOT / "frontend"
+
+# Single source of truth for the local model endpoint, shared by every tier-4
+# suite so the smoke test and the faithfulness gate never disagree about where
+# the server lives.
+DEFAULT_MODEL_URL = "http://127.0.0.1:8080/v1"
+
+
+def _pytest_summary_counts(output: str) -> dict[str, int]:
+    """Parse pytest's terminal summary into {passed, failed, skipped, ...}.
+
+    Substring checks like ``"skipped" in output`` are unsafe because pytest's
+    summary reports a *count* of skipped tests (opt-in suites skip by design),
+    so the word is present even on a run that failed. We read the actual
+    numbers instead.
+    """
+    counts: dict[str, int] = {}
+    for count, label in re.findall(
+        r"(\d+)\s+(passed|failed|skipped|error|errors|deselected|xfailed|xpassed)",
+        output,
+    ):
+        key = "error" if label == "errors" else label
+        counts[key] = counts.get(key, 0) + int(count)
+    return counts
 
 
 class StepResult(NamedTuple):
@@ -187,8 +211,9 @@ def run_real_model(
         "HARGATURUN_TEST_REAL_MODEL": "1",
         **({"HARGATURUN_TEST_MULTIMODAL": "1"} if multimodal else {}),
     }
-    if model_url:
-        env["HARGATURUN_MODEL_URL"] = model_url
+    # Always resolve the endpoint so an up server is never misreported as
+    # unreachable just because --model-url was omitted.
+    env["HARGATURUN_MODEL_URL"] = model_url or DEFAULT_MODEL_URL
     if strict:
         env["HARGATURUN_STRICT_MODE"] = "1"
 
@@ -196,16 +221,76 @@ def run_real_model(
     dur = time.time() - start
 
     output = (res.stderr + "\n" + res.stdout) if not verbose else ""
+    counts = _pytest_summary_counts(output)
+    ran = counts.get("passed", 0) + counts.get("failed", 0) + counts.get("error", 0)
+
     if res.returncode == 0:
-        if "skipped" in output and "passed" not in output:
+        # A clean exit with nothing executed means the suite skipped itself
+        # (server unreachable). Verbose runs suppress captured output, so fall
+        # back to PASS there since returncode 0 already proves success.
+        if not verbose and ran == 0 and counts.get("skipped", 0):
             return StepResult("Live Local-Model Smoke Test", "Tier 4", "SKIP", dur, "Model server unreachable at configured endpoint")
         return StepResult("Live Local-Model Smoke Test", "Tier 4", "PASS", dur)
 
-    if not strict and "skipped" in output:
+    # Non-zero exit with no test actually run == a collection/skip-time abort,
+    # not a genuine assertion failure. Only treat that as SKIP in non-strict.
+    if not strict and ran == 0 and counts.get("skipped", 0):
         return StepResult("Live Local-Model Smoke Test", "Tier 4", "SKIP", dur, "Model server unreachable")
 
     msg = "" if verbose else output.strip()
     return StepResult("Live Local-Model Smoke Test", "Tier 4", "FAIL", dur, msg)
+
+
+def run_write_faithfulness(
+    model_url: str | None = None,
+    strict: bool = False,
+    verbose: bool = False,
+) -> StepResult:
+    """Gate 1 real-model check: drive the writer task and measure whether any
+    unsupported numeric claim survives validation. SKIPs when the model server
+    is unreachable (unless --strict), mirroring the smoke-test tier."""
+    name = "Write-Path Numerical Faithfulness (Gate 1)"
+    start = time.time()
+    script = REPO_ROOT / "scripts" / "eval_write_faithfulness.py"
+    if not script.exists():
+        return StepResult(name, "Tier 4", "FAIL", 0.0, f"{script} not found")
+
+    temp_report = Path("/tmp/write-faithfulness-dev-run.json")
+    cmd = [sys.executable, str(script), "--out", str(temp_report), "--url", model_url or DEFAULT_MODEL_URL]
+    if strict:
+        cmd += ["--require-model"]
+
+    env = {**os.environ, "PYTHONPATH": str(BACKEND_DIR), "PYTHONDONTWRITEBYTECODE": "1"}
+    res = subprocess.run(cmd, cwd=str(REPO_ROOT), capture_output=not verbose, text=True, env=env)
+    dur = time.time() - start
+
+    # Prefer the structured report over parsing stdout.
+    measurement = gate_status = None
+    reason = ""
+    try:
+        import json as _json
+        report = _json.loads(temp_report.read_text(encoding="utf-8"))
+        measurement = report.get("measurement")
+        gate = report.get("gate", {}).get(
+            "zero_unsupported_numerical_claims_after_validation", {}
+        )
+        gate_status = gate.get("status")
+        reason = report.get("reason") or gate.get("reason") or ""
+    except (OSError, ValueError):
+        pass
+
+    if measurement == "measured":
+        if gate_status == "pass":
+            return StepResult(name, "Tier 4", "PASS", dur)
+        return StepResult(name, "Tier 4", "FAIL", dur, "unsupported numerical claims survived validation")
+    if measurement == "not_measured":
+        if strict:
+            return StepResult(name, "Tier 4", "FAIL", dur, reason or "model server unreachable in --strict mode")
+        return StepResult(name, "Tier 4", "SKIP", dur, reason or "model server unreachable")
+    if res.returncode == 0 and not strict:
+        return StepResult(name, "Tier 4", "SKIP", dur, "no report produced")
+    msg = "" if verbose else (res.stderr or res.stdout).strip()
+    return StepResult(name, "Tier 4", "FAIL", dur, msg)
 
 
 def run_compose(strict: bool = False, verbose: bool = False) -> StepResult:
@@ -263,7 +348,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--strict", action="store_true", help="Fail if optional prerequisites are missing")
     parser.add_argument("-v", "--verbose", action="store_true", help="Show detailed test runner output")
     parser.add_argument("--cases", type=Path, help="Override path to consultations.jsonl evaluation cases")
-    parser.add_argument("--model-url", type=str, help="Override local model server URL (default: http://127.0.0.1:8080/v1)")
+    parser.add_argument("--model-url", type=str, help=f"Override local model server URL (default: {DEFAULT_MODEL_URL})")
 
     return parser.parse_args()
 
@@ -277,18 +362,40 @@ def main() -> int:
 
     results: list[StepResult] = []
 
-    # Determine actions based on tier or explicit flags
+    # Tier selection and explicit sub-flags are ADDITIVE, not mutually
+    # exclusive: `--tier all --real-model` runs every tier, and a bare
+    # `--real-model` runs only that suite. A tier implies the suites at or
+    # below it (tier 2 includes tier 1; `all` includes everything).
+    tier = args.tier
+    tier_wants_1 = tier in ("1", "2", "all")
+    tier_wants_2 = tier in ("2", "all")
+    tier_wants_3 = tier in ("3", "all")
+    tier_wants_4 = tier in ("4", "all")
+
+    # An explicit sub-flag on its own narrows the run to just those suites; but
+    # once combined with a tier it only adds to what the tier already selects.
     explicit_flags = any([args.backend, args.eval, args.frontend, args.integration, args.real_model, args.multimodal, args.compose])
+    # When the user passes a non-default tier we always honor it; when they only
+    # pass sub-flags (tier left at its "1" default) we let the flags drive.
+    tier_specified = tier != "1" or not explicit_flags
 
-    run_tier1_unit = (args.tier in ("1", "2", "all") or args.backend) if not explicit_flags or args.backend else False
-    run_tier1_eval = (args.tier in ("1", "2", "all") or args.eval) if not explicit_flags or args.eval else False
-    run_tier2_front = (args.tier in ("2", "all") or args.frontend) if not explicit_flags or args.frontend else False
-    run_tier3_integ = (args.tier in ("3", "all") or args.integration) if not explicit_flags or args.integration else False
-    run_tier4_model = args.real_model or args.multimodal or (args.tier in ("4", "all") and (args.real_model or args.multimodal or os.getenv("HARGATURUN_TEST_REAL_MODEL") == "1"))
-    run_tier4_comp = args.compose or (args.tier in ("4", "all") and (args.compose or os.getenv("HARGATURUN_TEST_COMPOSE") == "1"))
+    run_tier1_unit = args.backend or (tier_specified and tier_wants_1)
+    run_tier1_eval = args.eval or (tier_specified and tier_wants_1)
+    run_tier2_front = args.frontend or (tier_specified and tier_wants_2)
+    run_tier3_integ = args.integration or (tier_specified and tier_wants_3)
+    run_tier4_model = (
+        args.real_model
+        or args.multimodal
+        or (tier_wants_4 and (tier == "4" or os.getenv("HARGATURUN_TEST_REAL_MODEL") == "1" or args.real_model or args.multimodal))
+    )
+    run_tier4_comp = (
+        args.compose
+        or (tier_wants_4 and (tier == "4" or os.getenv("HARGATURUN_TEST_COMPOSE") == "1" or args.compose))
+    )
 
-    # If tier 4 was explicitly requested without sub-flags, enable both
-    if args.tier == "4" and not explicit_flags:
+    # If tier 4 was requested via `--tier 4`/`--tier all` without model/compose
+    # sub-flags, run both tier-4 suites rather than silently skipping them.
+    if tier_wants_4 and not (args.real_model or args.multimodal or args.compose):
         run_tier4_model = True
         run_tier4_comp = True
 
@@ -337,6 +444,18 @@ def main() -> int:
     if run_tier4_model:
         print(cyan("\n[4/4] Running Tier 4: Live Local-Model Server Smoke Test..."))
         res = run_real_model(model_url=args.model_url, strict=args.strict, verbose=args.verbose, multimodal=args.multimodal)
+        results.append(res)
+        if res.status == "PASS":
+            print(f"      {green('PASS')} in {res.duration_s:.2f}s")
+        elif res.status == "SKIP":
+            print(f"      {yellow('SKIP')} ({res.message})")
+        else:
+            print(f"      {red('FAIL')} in {res.duration_s:.2f}s")
+            if res.message:
+                print(f"      {red(res.message)}")
+
+        print(cyan("\n[4/4] Running Tier 4: Write-Path Numerical Faithfulness (Gate 1)..."))
+        res = run_write_faithfulness(model_url=args.model_url, strict=args.strict, verbose=args.verbose)
         results.append(res)
         if res.status == "PASS":
             print(f"      {green('PASS')} in {res.duration_s:.2f}s")

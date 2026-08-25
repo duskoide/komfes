@@ -54,6 +54,8 @@ to `http://127.0.0.1:8000`. Useful environment values:
 - `HARGATURUN_MODEL_URL=http://127.0.0.1:8080/v1`
 - `HARGATURUN_MODEL_NAME=hargaturun-qwen3.5-4b`
 - `HARGATURUN_MODEL_FILE=hargaturun-qwen3.5-4b-q4_k_m.gguf` (or another configured 2B/4B candidate)
+- `HARGATURUN_MODEL_DIR=./models` (full-stack Compose host dir bind-mounted to `/models`; place an existing GGUF here to reuse it)
+- `HARGATURUN_MODEL_DOWNLOAD_URL=<url>` (full-stack Compose only; source used when the model is absent from `models/`)
 - `HARGATURUN_MODEL_SHA256=<64-hex-digest>` (optional native/Compose verification)
 - `HARGATURUN_LLM_PROFILE=text` (native launcher default; set `multimodal` only with a matching projector)
 - `HARGATURUN_MMPROJ_FILE=hargaturun-qwen3.5-mmproj-f16.gguf`
