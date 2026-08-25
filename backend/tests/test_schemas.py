@@ -222,6 +222,24 @@ class TestWriteValidation(unittest.TestCase):
         errors = validate_write_output(obj, allowed_numbers={45})
         self.assertTrue(any("4.5" in e for e in errors))
 
+    def test_bare_grouped_thousands_are_grounded(self):
+        # Regression: Indonesian prose commonly drops the ``Rp`` prefix, e.g.
+        # "pendapatan 69.000". The dot is a thousands separator, not a decimal,
+        # so 69.000 must resolve to the grounded integer 69000 rather than the
+        # unsupported decimal 69.0.
+        obj = {
+            "task": "write",
+            "explanation": (
+                "Harga jual 11.500 lebih menguntungkan daripada kerugian 170.000. "
+                "Pendapatan diprediksi 69.000 dengan diskon 25%."
+            ),
+            "promo_copy": "Diskon 25% mengamankan pendapatan 69.000 hari ini!",
+        }
+        allowed = {11500, 170000, 69000, 25}
+        self.assertEqual(
+            validate_write_output(obj, allowed, WRITE_STATUS_RECOMMENDATION), []
+        )
+
 
 class TestAllowedNumbers(unittest.TestCase):
     def test_extracts_prices_percents_and_input(self):

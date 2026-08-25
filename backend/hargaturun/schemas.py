@@ -386,20 +386,30 @@ def _sentence_count(text: str) -> int:
 
 
 _CURRENCY_RE = re.compile(r"(?i)\bRp\s*(\d{1,3}(?:\.\d{3})+|\d+)")
+_GROUPED_THOUSANDS_RE = re.compile(r"(?<![\w.,])\d{1,3}(?:\.\d{3})+(?!\d)")
 _NUMBER_RE = re.compile(r"(?<![\w])\d+(?:[.,]\d+)?(?![\w])")
 
 
 def _extract_numbers(text: str) -> list[int | float]:
     """Extract exact numeric claims from Indonesian prose.
 
-    Rupiah thousands separators are normalized (``Rp10.500`` -> ``10500``),
-    while decimals stay decimals (``4.5`` -> ``4.5``), preventing them from
-    masquerading as an allowed integer such as ``45``.
+    Thousands separators are normalized whether or not the number carries an
+    ``Rp`` prefix (``Rp10.500`` and a bare ``170.000`` both -> the integer),
+    because Indonesian prose commonly drops the currency prefix. A dot followed
+    by exactly three digits is unambiguously a thousands group, never a
+    decimal. True decimals (``4.5``, ``4,5``) stay decimals, preventing them
+    from masquerading as an allowed integer such as ``45``.
     """
     out: list[int | float] = []
     chars = list(text)
     for match in _CURRENCY_RE.finditer(text):
         out.append(int(match.group(1).replace(".", "")))
+        chars[match.start():match.end()] = " " * (match.end() - match.start())
+
+    remainder = "".join(chars)
+    chars = list(remainder)
+    for match in _GROUPED_THOUSANDS_RE.finditer(remainder):
+        out.append(int(match.group(0).replace(".", "")))
         chars[match.start():match.end()] = " " * (match.end() - match.start())
 
     remainder = "".join(chars)
