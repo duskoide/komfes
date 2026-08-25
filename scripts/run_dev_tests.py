@@ -208,6 +208,60 @@ def run_real_model(
     return StepResult("Live Local-Model Smoke Test", "Tier 4", "FAIL", dur, msg)
 
 
+def run_write_faithfulness(
+    model_url: str | None = None,
+    strict: bool = False,
+    verbose: bool = False,
+) -> StepResult:
+    """Gate 1 real-model check: drive the writer task and measure whether any
+    unsupported numeric claim survives validation. SKIPs when the model server
+    is unreachable (unless --strict), mirroring the smoke-test tier."""
+    name = "Write-Path Numerical Faithfulness (Gate 1)"
+    start = time.time()
+    script = REPO_ROOT / "scripts" / "eval_write_faithfulness.py"
+    if not script.exists():
+        return StepResult(name, "Tier 4", "FAIL", 0.0, f"{script} not found")
+
+    temp_report = Path("/tmp/write-faithfulness-dev-run.json")
+    cmd = [sys.executable, str(script), "--out", str(temp_report)]
+    if model_url:
+        cmd += ["--url", model_url]
+    if strict:
+        cmd += ["--require-model"]
+
+    env = {**os.environ, "PYTHONPATH": str(BACKEND_DIR), "PYTHONDONTWRITEBYTECODE": "1"}
+    res = subprocess.run(cmd, cwd=str(REPO_ROOT), capture_output=not verbose, text=True, env=env)
+    dur = time.time() - start
+
+    # Prefer the structured report over parsing stdout.
+    measurement = gate_status = None
+    reason = ""
+    try:
+        import json as _json
+        report = _json.loads(temp_report.read_text(encoding="utf-8"))
+        measurement = report.get("measurement")
+        gate = report.get("gate", {}).get(
+            "zero_unsupported_numerical_claims_after_validation", {}
+        )
+        gate_status = gate.get("status")
+        reason = report.get("reason") or gate.get("reason") or ""
+    except (OSError, ValueError):
+        pass
+
+    if measurement == "measured":
+        if gate_status == "pass":
+            return StepResult(name, "Tier 4", "PASS", dur)
+        return StepResult(name, "Tier 4", "FAIL", dur, "unsupported numerical claims survived validation")
+    if measurement == "not_measured":
+        if strict:
+            return StepResult(name, "Tier 4", "FAIL", dur, reason or "model server unreachable in --strict mode")
+        return StepResult(name, "Tier 4", "SKIP", dur, reason or "model server unreachable")
+    if res.returncode == 0 and not strict:
+        return StepResult(name, "Tier 4", "SKIP", dur, "no report produced")
+    msg = "" if verbose else (res.stderr or res.stdout).strip()
+    return StepResult(name, "Tier 4", "FAIL", dur, msg)
+
+
 def run_compose(strict: bool = False, verbose: bool = False) -> StepResult:
     start = time.time()
     has_runtime = shutil.which("docker") or shutil.which("podman-compose") or shutil.which("podman")
@@ -337,6 +391,18 @@ def main() -> int:
     if run_tier4_model:
         print(cyan("\n[4/4] Running Tier 4: Live Local-Model Server Smoke Test..."))
         res = run_real_model(model_url=args.model_url, strict=args.strict, verbose=args.verbose, multimodal=args.multimodal)
+        results.append(res)
+        if res.status == "PASS":
+            print(f"      {green('PASS')} in {res.duration_s:.2f}s")
+        elif res.status == "SKIP":
+            print(f"      {yellow('SKIP')} ({res.message})")
+        else:
+            print(f"      {red('FAIL')} in {res.duration_s:.2f}s")
+            if res.message:
+                print(f"      {red(res.message)}")
+
+        print(cyan("\n[4/4] Running Tier 4: Write-Path Numerical Faithfulness (Gate 1)..."))
+        res = run_write_faithfulness(model_url=args.model_url, strict=args.strict, verbose=args.verbose)
         results.append(res)
         if res.status == "PASS":
             print(f"      {green('PASS')} in {res.duration_s:.2f}s")

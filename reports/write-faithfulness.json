@@ -1,0 +1,31 @@
+{
+  "system": "Gate 1 — write-path numerical faithfulness (real model)",
+  "plan_gate": "zero_unsupported_numerical_claims_after_validation (§8.4)",
+  "measurement": "not_measured",
+  "reason": "model server unavailable at http://127.0.0.1:8080/v1",
+  "source": {
+    "evaluator_script": "scripts/eval_write_faithfulness.py",
+    "evaluator_script_sha256": "3537f22796eaec3fc60eb1d9021ae7ef78a33f0e3fc9462d452a7b5eddb23d8f",
+    "cases_file": "data/eval/consultations.jsonl",
+    "cases_file_sha256": "cf2b2047180733d4be0838aae2e48fd5ce819c8875818763430c99f98609d61e",
+    "commit": "4db993d39bc26475762c235b8e4147b5a84a42c7",
+    "working_tree_dirty": true
+  },
+  "model": {
+    "base_url": "http://127.0.0.1:8080/v1",
+    "served_model_name": "hargaturun-qwen3.5-4b",
+    "identity_note": "whatever the server serves; no fine-tuned artifact is claimed",
+    "write_prompt_version": "write-v2",
+    "temperature": 0,
+    "top_p": 1,
+    "seed": 42,
+    "max_output_tokens": 350
+  },
+  "gate": {
+    "zero_unsupported_numerical_claims_after_validation": {
+      "measurement": "not_measured",
+      "status": "not_measured",
+      "reason": "model server unavailable at http://127.0.0.1:8080/v1"
+    }
+  }
+}
