@@ -159,7 +159,29 @@ llama.cpp service has no `ports` entry and is reachable only as
 `ghcr.io/ggml-org/llama.cpp:server-cuda` to the tested digest documented in
 `docs/HargaTurun_LLM_Server_Setup.md`.
 
-Model and SQLite data persist in named volumes. See [`backend/README.md`](backend/README.md) for
+### Model file: bring your own or auto-download
+
+The GGUF model lives in the git-ignored `models/` directory, bind-mounted into
+the Compose stack. On startup the `model-init` service checks whether the model
+is already present before downloading:
+
+- **If you already have the model**, place it at
+  `models/hargaturun-qwen3.5-4b-q4_k_m.gguf` (copy the file or create a symlink).
+  It is detected, its SHA-256 is verified, and the download is skipped.
+- **If it is missing**, `model-init` downloads the base Qwen3.5-4B `Q4_K_M`
+  GGUF into `models/` and verifies its checksum before `llama.cpp` starts.
+
+Override the defaults with environment variables (see `compose.yml`):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `HARGATURUN_MODEL_DIR` | `./models` | Host directory bind-mounted to `/models` |
+| `HARGATURUN_MODEL_FILE` | `hargaturun-qwen3.5-4b-q4_k_m.gguf` | Expected GGUF filename |
+| `HARGATURUN_MODEL_DOWNLOAD_URL` | Hugging Face base Qwen3.5-4B `Q4_K_M` | Source used only when the file is absent |
+| `HARGATURUN_MODEL_SHA256` | recorded base-model digest | Checksum verified on both existing and downloaded files |
+
+Model and SQLite data persist in the host `models/` directory and a named
+volume. See [`backend/README.md`](backend/README.md) for
 configuration, native-development commands, and the base-model caveat.
 
 ## Developer Test Suite
