@@ -11,7 +11,12 @@
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
           packages = with pkgs; [
-            flutter
+            # Pin the Flutter minor line explicitly instead of the floating
+            # `flutter` attribute so the dev shell stays on a stable, older
+            # release (3.44 line) that is broadly available. The bare `flutter`
+            # tracks nixpkgs-unstable and can jump to a newer version that some
+            # environments cannot fetch yet.
+            flutter344
             (python3.withPackages (pythonPackages: with pythonPackages; [
               fastapi
               httpx

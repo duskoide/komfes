@@ -1,4 +1,4 @@
-FROM ghcr.io/cirruslabs/flutter:3.44.4 AS build
+FROM ghcr.io/cirruslabs/flutter:3.44.0 AS build
 
 ARG API_BASE_URL=http://127.0.0.1:8000
 ARG DEVICE_PREVIEW=true
